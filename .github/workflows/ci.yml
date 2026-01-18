@@ -14,16 +14,25 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout
+      # =========================
+      # Checkout
+      # =========================
+      - name: Checkout repository
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
+      # =========================
+      # Rust toolchain
+      # =========================
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
         with:
           components: rustfmt, clippy
 
+      # =========================
+      # Cache Cargo
+      # =========================
       - name: Cache cargo registry
         uses: actions/cache@v4
         with:
@@ -36,22 +45,35 @@ jobs:
           path: ~/.cargo/git
           key: ${{ runner.os }}-cargo-git-${{ hashFiles('**/Cargo.lock') }}
 
-      - name: Cache target
+      - name: Cache target directory
         uses: actions/cache@v4
         with:
           path: target
           key: ${{ runner.os }}-cargo-target-${{ hashFiles('**/Cargo.lock') }}
 
+      # =========================
+      # Install gitleaks (ZIP – robust)
+      # =========================
       - name: Install gitleaks
         run: |
-          curl -sSL https://github.com/gitleaks/gitleaks/releases/latest/download/gitleaks_linux_x64.tar.gz \
-          | tar -xz
+          curl -sSL -o gitleaks.zip \
+            https://github.com/gitleaks/gitleaks/releases/latest/download/gitleaks_linux_x64.zip
+          unzip gitleaks.zip
           sudo mv gitleaks /usr/local/bin/gitleaks
 
+      - name: Check gitleaks installation
+        run: gitleaks version
+
+      # =========================
+      # Security scan
+      # =========================
       - name: Secret scan (gitleaks)
         run: |
           gitleaks detect --source . --no-git
 
+      # =========================
+      # Rust quality gates
+      # =========================
       - name: Format check
         run: cargo fmt --all -- --check
 
