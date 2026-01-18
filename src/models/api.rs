@@ -27,7 +27,6 @@ pub struct ApiResponse<T> {
     pub meta: ApiMeta,
 }
 
-
 impl ApiMeta {
     pub fn new() -> Self {
         Self {
@@ -42,16 +41,6 @@ impl<T> ApiResponse<T> {
         Self {
             success: true,
             data,
-            meta: ApiMeta::new(),
-        }
-    }
-}
-
-impl ApiErrorResponse {
-    pub fn from_error(error: ApiError) -> Self {
-        Self {
-            success: false,
-            error,
             meta: ApiMeta::new(),
         }
     }

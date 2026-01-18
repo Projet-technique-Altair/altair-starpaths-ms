@@ -2,11 +2,11 @@ use sqlx::PgPool;
 use uuid::Uuid;
 
 use crate::{
-    models::starpath::{Starpath, StarpathRow},
-    models::starpath_lab::{StarpathLab, StarpathLabRow},
-    models::starpath_input::{CreateStarpathInput, UpdateStarpathInput, AddStarpathLabInput, UpdateStarpathLabInput},
-    models::starpath_progress::{StarpathProgress, StarpathProgressRow},
     error::AppError,
+    models::starpath::{Starpath, StarpathRow},
+    models::starpath_input::{AddStarpathLabInput, CreateStarpathInput, UpdateStarpathInput},
+    models::starpath_lab::{StarpathLab, StarpathLabRow},
+    models::starpath_progress::{StarpathProgress, StarpathProgressRow},
 };
 
 #[derive(Clone)]
@@ -28,7 +28,7 @@ impl StarpathsService {
             SELECT *
             FROM starpaths
             ORDER BY created_at DESC
-            "#
+            "#,
         )
         .fetch_all(&self.db)
         .await
@@ -40,16 +40,13 @@ impl StarpathsService {
     // =========================
     // GET /starpaths/:id
     // =========================
-    pub async fn get_starpath(
-        &self,
-        starpath_id: Uuid,
-    ) -> Result<Option<Starpath>, AppError> {
+    pub async fn get_starpath(&self, starpath_id: Uuid) -> Result<Option<Starpath>, AppError> {
         let row = sqlx::query_as::<_, StarpathRow>(
             r#"
             SELECT *
             FROM starpaths
             WHERE starpath_id = $1
-            "#
+            "#,
         )
         .bind(starpath_id)
         .fetch_optional(&self.db)
@@ -62,10 +59,7 @@ impl StarpathsService {
     // =========================
     // POST /starpaths
     // =========================
-    pub async fn create_starpath(
-        &self,
-        input: CreateStarpathInput,
-    ) -> Result<Starpath, AppError> {
+    pub async fn create_starpath(&self, input: CreateStarpathInput) -> Result<Starpath, AppError> {
         let row = sqlx::query_as::<_, StarpathRow>(
             r#"
             INSERT INTO starpaths (
@@ -76,7 +70,7 @@ impl StarpathsService {
             )
             VALUES ($1, $2, $3, $4)
             RETURNING *
-            "#
+            "#,
         )
         .bind(input.creator_id)
         .bind(input.name)
@@ -106,7 +100,7 @@ impl StarpathsService {
                 difficulty = COALESCE($4, difficulty)
             WHERE starpath_id = $1
             RETURNING *
-            "#
+            "#,
         )
         .bind(starpath_id)
         .bind(input.name)
@@ -122,15 +116,12 @@ impl StarpathsService {
     // =========================
     // DELETE /starpaths/:id
     // =========================
-    pub async fn delete_starpath(
-        &self,
-        starpath_id: Uuid,
-    ) -> Result<u64, AppError> {
+    pub async fn delete_starpath(&self, starpath_id: Uuid) -> Result<u64, AppError> {
         let result = sqlx::query(
             r#"
             DELETE FROM starpaths
             WHERE starpath_id = $1
-            "#
+            "#,
         )
         .bind(starpath_id)
         .execute(&self.db)
@@ -140,20 +131,14 @@ impl StarpathsService {
         Ok(result.rows_affected())
     }
 
-
-
-
-    pub async fn get_starpath_labs(
-        &self,
-        starpath_id: Uuid,
-    ) -> Result<Vec<StarpathLab>, AppError> {
+    pub async fn get_starpath_labs(&self, starpath_id: Uuid) -> Result<Vec<StarpathLab>, AppError> {
         let rows = sqlx::query_as::<_, StarpathLabRow>(
             r#"
             SELECT starpath_id, lab_id, position
             FROM starpath_labs
             WHERE starpath_id = $1
             ORDER BY position ASC
-            "#
+            "#,
         )
         .bind(starpath_id)
         .fetch_all(&self.db)
@@ -162,8 +147,6 @@ impl StarpathsService {
 
         Ok(rows.into_iter().map(StarpathLab::from).collect())
     }
-
-
 
     pub async fn add_lab_to_starpath(
         &self,
@@ -174,7 +157,7 @@ impl StarpathsService {
             r#"
             INSERT INTO starpath_labs (starpath_id, lab_id, position)
             VALUES ($1, $2, $3)
-            "#
+            "#,
         )
         .bind(starpath_id)
         .bind(input.lab_id)
@@ -185,7 +168,6 @@ impl StarpathsService {
 
         Ok(())
     }
-
 
     pub async fn update_starpath_lab_position(
         &self,
@@ -198,7 +180,7 @@ impl StarpathsService {
             UPDATE starpath_labs
             SET position = $3
             WHERE starpath_id = $1 AND lab_id = $2
-            "#
+            "#,
         )
         .bind(starpath_id)
         .bind(lab_id)
@@ -214,7 +196,6 @@ impl StarpathsService {
         Ok(())
     }
 
-
     pub async fn remove_lab_from_starpath(
         &self,
         starpath_id: Uuid,
@@ -224,7 +205,7 @@ impl StarpathsService {
             r#"
             DELETE FROM starpath_labs
             WHERE starpath_id = $1 AND lab_id = $2
-            "#
+            "#,
         )
         .bind(starpath_id)
         .bind(lab_id)
@@ -239,21 +220,18 @@ impl StarpathsService {
         Ok(())
     }
 
-
-
     pub async fn start_starpath(
         &self,
         user_id: Uuid,
         starpath_id: Uuid,
     ) -> Result<StarpathProgress, AppError> {
-
         // 1️⃣ Vérifier si déjà commencé (idempotence)
         if let Some(row) = sqlx::query_as::<_, StarpathProgressRow>(
             r#"
             SELECT *
             FROM user_starpath_progress
             WHERE user_id = $1 AND starpath_id = $2
-            "#
+            "#,
         )
         .bind(user_id)
         .bind(starpath_id)
@@ -275,7 +253,7 @@ impl StarpathsService {
             )
             VALUES ($1, $2, 0, 'in_progress')
             RETURNING *
-            "#
+            "#,
         )
         .bind(user_id)
         .bind(starpath_id)
@@ -285,8 +263,6 @@ impl StarpathsService {
 
         Ok(StarpathProgress::from(row))
     }
-
-
 
     // =========================
     // GET user starpath progress
@@ -308,7 +284,7 @@ impl StarpathsService {
             FROM user_starpath_progress
             WHERE user_id = $1
               AND starpath_id = $2
-            "#
+            "#,
         )
         .bind(user_id)
         .bind(starpath_id)
@@ -318,7 +294,4 @@ impl StarpathsService {
 
         Ok(row.map(StarpathProgress::from))
     }
-
-    
 }
-

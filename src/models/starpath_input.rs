@@ -23,14 +23,11 @@ pub struct UpdateStarpathInput {
     pub difficulty: Option<String>,
 }
 
-
 #[derive(Debug, Deserialize)]
 pub struct AddStarpathLabInput {
     pub lab_id: Uuid,
     pub position: i32,
 }
-
-
 
 #[derive(Debug, Deserialize)]
 pub struct UpdateStarpathLabInput {
