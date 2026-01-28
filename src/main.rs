@@ -22,11 +22,11 @@ async fn main() {
 
     let app = init_routes().with_state(state).layer(cors);
 
-    let listener = tokio::net::TcpListener::bind("0.0.0.0:8005")
+    let listener = tokio::net::TcpListener::bind("0.0.0.0:3005")
         .await
-        .expect("Failed to bind port 8005");
+        .expect("Failed to bind port 3005");
 
-    println!("Starpaths MS running on http://localhost:8005");
+    println!("Starpaths MS running on http://localhost:3005");
 
     axum::serve(listener, app).await.unwrap();
 }
