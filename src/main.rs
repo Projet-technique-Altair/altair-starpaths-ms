@@ -1,10 +1,10 @@
 use tower_http::cors::{Any, CorsLayer};
 
-mod error;
-mod models;
 mod routes;
 mod services;
 mod state;
+mod models;
+mod error;
 
 use crate::routes::init_routes;
 use crate::state::AppState;
@@ -20,15 +20,17 @@ async fn main() {
         .allow_methods(Any)
         .allow_headers(Any);
 
-    let app = init_routes().with_state(state).layer(cors);
+    let app = init_routes()
+        .with_state(state)
+        .layer(cors);
 
-    let port = std::env::var("PORT").unwrap_or("3005".to_string());
-    
-    let listener = tokio::net::TcpListener::bind(format!("0.0.0.0:{}", port))
+    let listener = tokio::net::TcpListener::bind("0.0.0.0:3005")
         .await
-        .expect(format!("Failed to bind port {}", port).as_str());
+        .expect("Failed to bind port 3005");
 
-    println!("Starpaths MS running on http://localhost:{}", port);
+    println!("Starpaths MS running on http://localhost:3005");
 
-    axum::serve(listener, app).await.unwrap();
+    axum::serve(listener, app)
+        .await
+        .unwrap();
 }
