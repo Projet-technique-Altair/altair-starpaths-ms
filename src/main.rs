@@ -23,10 +23,10 @@ async fn main() {
     let app = init_routes().with_state(state).layer(cors);
 
     let port = std::env::var("PORT").unwrap_or("3005".to_string());
-
+    
     let listener = tokio::net::TcpListener::bind(format!("0.0.0.0:{}", port))
         .await
-        .unwrap_or_else(|_| panic!("Failed to bind port {}", port));
+        .expect(format!("Failed to bind port {}", port).as_str());
 
     println!("Starpaths MS running on http://localhost:{}", port);
 
