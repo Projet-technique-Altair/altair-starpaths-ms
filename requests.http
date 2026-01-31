@@ -1,0 +1,306 @@
+###############################################################################
+# Altair Starpaths Microservice - API Tests
+# Base URL: http://localhost:3005
+###############################################################################
+
+### Variables (customize these)
+@baseUrl = http://localhost:8080
+@contentType = application/json
+
+# Sample UUIDs (replace with actual values after creation)
+@creatorId = 550e8400-e29b-41d4-a716-446655440000
+@starpathId = 550e8400-e29b-41d4-a716-446655440001
+@labId = 550e8400-e29b-41d4-a716-446655440002
+@userId = 550e8400-e29b-41d4-a716-446655440003
+
+###############################################################################
+# HEALTH CHECK
+###############################################################################
+
+### Health Check
+GET {{baseUrl}}/health
+Accept: application/json
+
+###############################################################################
+# STARPATHS CRUD
+###############################################################################
+
+### 1. List all starpaths
+GET {{baseUrl}}/starpaths
+Accept: {{contentType}}
+
+### 2. Create a new starpath
+POST {{baseUrl}}/starpaths
+Content-Type: {{contentType}}
+
+{
+  "creator_id": "{{creatorId}}",
+  "name": "Web Development Fundamentals",
+  "description": "Learn the basics of web development with HTML, CSS, and JavaScript",
+  "difficulty": "beginner"
+}
+
+### 3. Create another starpath (intermediate)
+POST {{baseUrl}}/starpaths
+Content-Type: {{contentType}}
+
+{
+  "creator_id": "{{creatorId}}",
+  "name": "Advanced Rust Programming",
+  "description": "Master advanced Rust concepts including async/await, macros, and unsafe code",
+  "difficulty": "advanced"
+}
+
+### 4. Create a third starpath (no description)
+POST {{baseUrl}}/starpaths
+Content-Type: {{contentType}}
+
+{
+  "creator_id": "{{creatorId}}",
+  "name": "Python Data Science Track",
+  "difficulty": "intermediate"
+}
+
+### 5. Get specific starpath by ID
+# Replace {{starpathId}} with actual ID from creation response
+GET {{baseUrl}}/starpaths/{{starpathId}}
+Accept: {{contentType}}
+
+### 6. Update starpath
+# Replace {{starpathId}} with actual ID
+PUT {{baseUrl}}/starpaths/{{starpathId}}
+Content-Type: {{contentType}}
+
+{
+  "name": "Web Development Fundamentals - Updated",
+  "description": "Complete guide to modern web development",
+  "difficulty": "intermediate"
+}
+
+### 7. Partial update (only name)
+PUT {{baseUrl}}/starpaths/{{starpathId}}
+Content-Type: {{contentType}}
+
+{
+  "name": "Web Development Mastery"
+}
+
+### 8. Delete starpath
+# Replace {{starpathId}} with actual ID
+DELETE {{baseUrl}}/starpaths/{{starpathId}}
+
+###############################################################################
+# STARPATH LABS MANAGEMENT
+###############################################################################
+
+### 9. Get labs for a starpath
+# Replace {{starpathId}} with actual ID
+GET {{baseUrl}}/starpaths/{{starpathId}}/labs
+Accept: {{contentType}}
+
+### 10. Add lab to starpath (position 0 - first lab)
+# Replace {{starpathId}} and {{labId}} with actual IDs
+POST {{baseUrl}}/starpaths/{{starpathId}}/labs
+Content-Type: {{contentType}}
+
+{
+  "lab_id": "{{labId}}",
+  "position": 0
+}
+
+### 11. Add second lab to starpath (position 1)
+POST {{baseUrl}}/starpaths/{{starpathId}}/labs
+Content-Type: {{contentType}}
+
+{
+  "lab_id": "650e8400-e29b-41d4-a716-446655440002",
+  "position": 1
+}
+
+### 12. Add third lab to starpath (position 2)
+POST {{baseUrl}}/starpaths/{{starpathId}}/labs
+Content-Type: {{contentType}}
+
+{
+  "lab_id": "750e8400-e29b-41d4-a716-446655440002",
+  "position": 2
+}
+
+### 13. Update lab position (reorder)
+# Replace {{starpathId}} and {{labId}} with actual IDs
+PUT {{baseUrl}}/starpaths/{{starpathId}}/labs/{{labId}}
+Content-Type: {{contentType}}
+
+{
+  "position": 5
+}
+
+### 14. Delete lab from starpath
+# Replace {{starpathId}} and {{labId}} with actual IDs
+DELETE {{baseUrl}}/starpaths/{{starpathId}}/labs/{{labId}}
+
+###############################################################################
+# USER PROGRESS TRACKING
+###############################################################################
+
+### 15. Start a starpath for a user
+# Replace {{starpathId}} with actual starpath ID
+POST {{baseUrl}}/starpaths/{{starpathId}}/start
+Content-Type: {{contentType}}
+
+"{{userId}}"
+
+### 16. Get user's progress on a starpath
+# Replace {{starpathId}} with actual starpath ID
+GET {{baseUrl}}/starpaths/{{starpathId}}/progress
+Content-Type: {{contentType}}
+
+"{{userId}}"
+
+### 17. Start another starpath (idempotency test)
+# Should return existing progress if already started
+POST {{baseUrl}}/starpaths/{{starpathId}}/start
+Content-Type: {{contentType}}
+
+"{{userId}}"
+
+###############################################################################
+# ERROR CASES / EDGE CASES
+###############################################################################
+
+### 18. Get non-existent starpath (404)
+GET {{baseUrl}}/starpaths/00000000-0000-0000-0000-000000000000
+Accept: {{contentType}}
+
+### 19. Update non-existent starpath (404)
+PUT {{baseUrl}}/starpaths/00000000-0000-0000-0000-000000000000
+Content-Type: {{contentType}}
+
+{
+  "name": "This should fail"
+}
+
+### 20. Delete non-existent starpath (404)
+DELETE {{baseUrl}}/starpaths/00000000-0000-0000-0000-000000000000
+
+### 21. Get progress for non-existent starpath (404)
+GET {{baseUrl}}/starpaths/00000000-0000-0000-0000-000000000000/progress
+Content-Type: {{contentType}}
+
+"{{userId}}"
+
+### 22. Invalid UUID format (400)
+GET {{baseUrl}}/starpaths/invalid-uuid
+Accept: {{contentType}}
+
+### 23. Create starpath with missing required fields (400)
+POST {{baseUrl}}/starpaths
+Content-Type: {{contentType}}
+
+{
+  "description": "Missing creator_id and name"
+}
+
+### 24. Add duplicate lab to starpath (should conflict)
+POST {{baseUrl}}/starpaths/{{starpathId}}/labs
+Content-Type: {{contentType}}
+
+{
+  "lab_id": "{{labId}}",
+  "position": 0
+}
+
+###############################################################################
+# BATCH TESTING WORKFLOW
+###############################################################################
+
+### WORKFLOW 1: Complete Starpath Lifecycle
+# Step 1: Create starpath
+POST {{baseUrl}}/starpaths
+Content-Type: {{contentType}}
+
+{
+  "creator_id": "{{creatorId}}",
+  "name": "Complete Testing Workflow",
+  "description": "Full lifecycle test",
+  "difficulty": "beginner"
+}
+
+# Step 2: Copy the starpath_id from response, update @starpathId variable above
+
+# Step 3: Add labs (run after updating @starpathId)
+POST {{baseUrl}}/starpaths/{{starpathId}}/labs
+Content-Type: {{contentType}}
+
+{
+  "lab_id": "111e8400-e29b-41d4-a716-446655440001",
+  "position": 0
+}
+
+# Step 4: Get all labs
+GET {{baseUrl}}/starpaths/{{starpathId}}/labs
+
+# Step 5: Start starpath
+POST {{baseUrl}}/starpaths/{{starpathId}}/start
+Content-Type: {{contentType}}
+
+"{{userId}}"
+
+# Step 6: Check progress
+GET {{baseUrl}}/starpaths/{{starpathId}}/progress
+Content-Type: {{contentType}}
+
+"{{userId}}"
+
+# Step 7: Update starpath
+PUT {{baseUrl}}/starpaths/{{starpathId}}
+Content-Type: {{contentType}}
+
+{
+  "difficulty": "intermediate"
+}
+
+# Step 8: List all starpaths
+GET {{baseUrl}}/starpaths
+
+###############################################################################
+# NOTES
+###############################################################################
+
+# 1. Before running these tests, ensure:
+#    - PostgreSQL is running
+#    - DATABASE_URL environment variable is set
+#    - The microservice is running on port 3005 (or update @baseUrl)
+#
+# 2. Update the UUID variables at the top with actual values:
+#    - After creating a starpath, copy its ID to @starpathId
+#    - Use valid lab IDs from your labs microservice
+#    - Use valid user IDs from your users microservice
+#
+# 3. Expected response format:
+#    {
+#      "success": true,
+#      "data": { ... },
+#      "meta": {
+#        "request_id": "uuid",
+#        "timestamp": "ISO8601"
+#      }
+#    }
+#
+# 4. Error response format:
+#    {
+#      "success": false,
+#      "error": {
+#        "code": "ERROR_CODE",
+#        "message": "Human readable message",
+#        "details": null
+#      },
+#      "meta": { ... }
+#    }
+#
+# 5. HTTP Status Codes:
+#    - 200: Success
+#    - 404: Not Found
+#    - 400: Bad Request
+#    - 409: Conflict (duplicate entry)
+#    - 500: Internal Server Error

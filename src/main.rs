@@ -22,11 +22,13 @@ async fn main() {
 
     let app = init_routes().with_state(state).layer(cors);
 
-    let listener = tokio::net::TcpListener::bind("0.0.0.0:3005")
-        .await
-        .expect("Failed to bind port 3005");
+    let port = std::env::var("PORT").unwrap_or("3005".to_string());
 
-    println!("Starpaths MS running on http://localhost:3005");
+    let listener = tokio::net::TcpListener::bind(format!("0.0.0.0:{}", port))
+        .await
+        .unwrap_or_else(|_| panic!("Failed to bind port {}", port));
+
+    println!("Starpaths MS running on http://localhost:{}", port);
 
     axum::serve(listener, app).await.unwrap();
 }
