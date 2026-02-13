@@ -30,7 +30,7 @@ async fn main() {
         .await
         .unwrap_or_else(|_| panic!("Failed to bind port {}", port));
 
-    println!("Starpaths MS running on http://localhost:{}", port);
+    println!("Starpaths Ms running on http://localhost:{}", port);
 
     axum::serve(listener, app)
         .await
