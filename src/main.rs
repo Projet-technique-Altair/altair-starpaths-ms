@@ -1,10 +1,10 @@
 use tower_http::cors::{Any, CorsLayer};
 
+mod error;
+mod models;
 mod routes;
 mod services;
 mod state;
-mod models;
-mod error;
 
 use crate::routes::init_routes;
 use crate::state::AppState;
@@ -20,9 +20,7 @@ async fn main() {
         .allow_methods(Any)
         .allow_headers(Any);
 
-    let app = init_routes()
-        .with_state(state)
-        .layer(cors);
+    let app = init_routes().with_state(state).layer(cors);
 
     let port = std::env::var("PORT").unwrap_or("3005".to_string());
 
@@ -30,9 +28,7 @@ async fn main() {
         .await
         .unwrap_or_else(|_| panic!("Failed to bind port {}", port));
 
-    println!("Starpaths MS running on http://localhost:{}", port);
+    println!("Starpaths Ms running on http://localhost:{}", port);
 
-    axum::serve(listener, app)
-        .await
-        .unwrap();
+    axum::serve(listener, app).await.unwrap();
 }

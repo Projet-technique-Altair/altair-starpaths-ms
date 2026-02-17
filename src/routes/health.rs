@@ -21,7 +21,6 @@ pub async fn health() -> impl IntoResponse {
     (StatusCode::OK, Json(response))
 }*/
 
-
 use crate::state::AppState;
 use axum::{extract::State, Json};
 use serde_json::json;
