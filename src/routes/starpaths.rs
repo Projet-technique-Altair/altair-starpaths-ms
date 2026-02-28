@@ -3,7 +3,7 @@ use axum::{
     Json,
 };
 use uuid::Uuid;
-
+use axum::http::HeaderMap;
 use crate::{
     error::AppError,
     models::{
@@ -13,6 +13,7 @@ use crate::{
         starpath_progress::StarpathProgress,
     },
     state::AppState,
+    services::extractor::extract_caller,
 };
 
 // ======================================================
@@ -60,8 +61,23 @@ pub async fn create_starpath(
 pub async fn update_starpath(
     State(state): State<AppState>,
     Path(starpath_id): Path<Uuid>,
+    headers: HeaderMap,
     Json(input): Json<UpdateStarpathInput>,
 ) -> Result<Json<ApiResponse<Starpath>>, AppError> {
+
+    let caller = extract_caller(&headers)?;
+
+    let existing_starpath = state.starpaths_service.get_starpath(starpath_id).await?.ok_or_else(|| AppError::NotFound("Starpath not found".into()))?;
+
+    let is_admin = caller.roles.iter().any(|r| r == "admin");
+    let is_owner = caller.user_id == existing_starpath.creator_id;
+
+    if !is_admin && !is_owner {
+        return Err(AppError::Forbidden(
+            "You are not allowed to update this starpath.".into(),
+        ));
+    }
+
     let starpath = state
         .starpaths_service
         .update_starpath(starpath_id, input)
@@ -76,8 +92,23 @@ pub async fn update_starpath(
 // ======================================================
 pub async fn delete_starpath(
     State(state): State<AppState>,
+    headers: HeaderMap,
     Path(starpath_id): Path<Uuid>,
 ) -> Result<Json<ApiResponse<()>>, AppError> {
+
+    let caller = extract_caller(&headers)?;
+
+    let existing_starpath = state.starpaths_service.get_starpath(starpath_id).await?.ok_or_else(|| AppError::NotFound("Starpath not found".into()))?;
+
+    let is_admin = caller.roles.iter().any(|r| r == "admin");
+    let is_owner = caller.user_id == existing_starpath.creator_id;
+
+    if !is_admin && !is_owner {
+        return Err(AppError::Forbidden(
+            "You are not allowed to delete this starpath.".into(),
+        ));
+    }
+
     let affected = state.starpaths_service.delete_starpath(starpath_id).await?;
 
     if affected == 0 {
@@ -90,6 +121,9 @@ pub async fn delete_starpath(
 use crate::models::starpath_input::{AddStarpathLabInput, UpdateStarpathLabInput};
 use crate::models::starpath_lab::StarpathLab;
 
+// ======================================================
+// GET /starpaths/{id}/labs (public – MVP)
+// ======================================================
 pub async fn get_starpath_labs(
     State(state): State<AppState>,
     Path(starpath_id): Path<Uuid>,
@@ -102,11 +136,30 @@ pub async fn get_starpath_labs(
     Ok(Json(ApiResponse::success(labs)))
 }
 
+
+// ======================================================
+// POST /starpaths/{id}/labs (public – MVP)
+// ======================================================
 pub async fn add_starpath_lab(
     State(state): State<AppState>,
+    headers: HeaderMap,
     Path(starpath_id): Path<Uuid>,
     Json(input): Json<AddStarpathLabInput>,
 ) -> Result<Json<ApiResponse<()>>, AppError> {
+
+    let caller = extract_caller(&headers)?;
+
+    let existing_starpath = state.starpaths_service.get_starpath(starpath_id).await?.ok_or_else(|| AppError::NotFound("Starpath not found".into()))?;
+
+    let is_admin = caller.roles.iter().any(|r| r == "admin");
+    let is_owner = caller.user_id == existing_starpath.creator_id;
+
+    if !is_admin && !is_owner {
+        return Err(AppError::Forbidden(
+            "You are not allowed to add labs to this starpath.".into(),
+        ));
+    }
+
     state
         .starpaths_service
         .add_lab_to_starpath(starpath_id, input)
@@ -115,11 +168,30 @@ pub async fn add_starpath_lab(
     Ok(Json(ApiResponse::success(())))
 }
 
+
+// ======================================================
+// PUT /starpaths/{id}/labs/{lab_id} (public – MVP)
+// ======================================================
 pub async fn update_starpath_lab(
     State(state): State<AppState>,
+    headers: HeaderMap,
     Path((starpath_id, lab_id)): Path<(Uuid, Uuid)>,
     Json(input): Json<UpdateStarpathLabInput>,
 ) -> Result<Json<ApiResponse<()>>, AppError> {
+
+    let caller = extract_caller(&headers)?;
+
+    let existing_starpath = state.starpaths_service.get_starpath(starpath_id).await?.ok_or_else(|| AppError::NotFound("Starpath not found".into()))?;
+
+    let is_admin = caller.roles.iter().any(|r| r == "admin");
+    let is_owner = caller.user_id == existing_starpath.creator_id;
+
+    if !is_admin && !is_owner {
+        return Err(AppError::Forbidden(
+            "You are not allowed to updae the labs of this starpath.".into(),
+        ));
+    }
+
     state
         .starpaths_service
         .update_starpath_lab_position(starpath_id, lab_id, input.position)
@@ -128,10 +200,29 @@ pub async fn update_starpath_lab(
     Ok(Json(ApiResponse::success(())))
 }
 
+
+// ======================================================
+// DELETE /starpaths/{id}/labs/{lab_id} (public – MVP)
+// ======================================================
 pub async fn delete_starpath_lab(
     State(state): State<AppState>,
+    headers: HeaderMap,
     Path((starpath_id, lab_id)): Path<(Uuid, Uuid)>,
 ) -> Result<Json<ApiResponse<()>>, AppError> {
+
+    let caller = extract_caller(&headers)?;
+
+    let existing_starpath = state.starpaths_service.get_starpath(starpath_id).await?.ok_or_else(|| AppError::NotFound("Starpath not found".into()))?;
+
+    let is_admin = caller.roles.iter().any(|r| r == "admin");
+    let is_owner = caller.user_id == existing_starpath.creator_id;
+
+    if !is_admin && !is_owner {
+        return Err(AppError::Forbidden(
+            "You are not allowed to delete the labs of this starpath.".into(),
+        ));
+    }
+
     state
         .starpaths_service
         .remove_lab_from_starpath(starpath_id, lab_id)
