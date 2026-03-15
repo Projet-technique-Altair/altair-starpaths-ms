@@ -1,5 +1,5 @@
 use axum::{
-    extract::{Path, State},
+    extract::{Path, State, Query},
     Json,
 };
 use uuid::Uuid;
@@ -7,7 +7,7 @@ use axum::http::HeaderMap;
 use crate::{
     error::AppError,
     models::{
-        api::ApiResponse,
+        api::{ApiResponse, SearchStarpathsQuery},
         starpath::Starpath,
         starpath_input::{CreateStarpathInput, UpdateStarpathInput},
         starpath_progress::StarpathProgress,
@@ -43,14 +43,60 @@ pub async fn get_starpath(
     Ok(Json(ApiResponse::success(starpath)))
 }
 
+// ==========================
+// GET /mystarpaths (creator's starpaths only)
+// ==========================
+pub async fn my_starpaths(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+) -> Result<Json<ApiResponse<Vec<Starpath>>>, AppError> {
+
+    let caller = extract_caller(&headers)?;
+
+    let starpaths = state
+        .starpaths_service
+        .my_starpaths(caller.user_id)
+        .await?;
+
+    Ok(Json(ApiResponse::success(starpaths)))
+}
+
+// ==========================
+// GET /starpaths/search?q=
+// ==========================
+pub async fn search_starpaths(
+    State(state): State<AppState>,
+    Query(params): Query<SearchStarpathsQuery>,
+) -> Result<Json<ApiResponse<Vec<Starpath>>>, AppError> {
+
+    let starpaths = state
+        .starpaths_service
+        .search_starpaths(params.q)
+        .await?;
+
+    Ok(Json(ApiResponse::success(starpaths)))
+}
+
 // ======================================================
-// POST /starpaths (public – MVP, pas d’auth)
+// POST /starpaths (creator only)
 // ======================================================
 pub async fn create_starpath(
     State(state): State<AppState>,
+    headers: HeaderMap,
     Json(input): Json<CreateStarpathInput>,
 ) -> Result<Json<ApiResponse<Starpath>>, AppError> {
-    let starpath = state.starpaths_service.create_starpath(input).await?;
+
+    let caller = extract_caller(&headers)?;
+
+    let starpath = state
+        .starpaths_service
+        .create_starpath(
+            caller.user_id,
+            input.name,
+            input.description,
+            input.difficulty,
+        )
+        .await?;
 
     Ok(Json(ApiResponse::success(starpath)))
 }

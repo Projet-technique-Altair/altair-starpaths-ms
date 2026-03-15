@@ -56,10 +56,76 @@ impl StarpathsService {
         Ok(row.map(Starpath::from))
     }
 
+    // ==========================
+    // GET /mystarpaths (creator's starpaths only)
+    // ==========================
+    pub async fn my_starpaths(&self, creator_id: Uuid) -> Result<Vec<Starpath>, AppError> {
+
+        let rows = sqlx::query_as::<_, StarpathRow>(
+            r#"
+            SELECT
+                starpath_id,
+                creator_id,
+                name,
+                description,
+                difficulty,
+                created_at
+            FROM starpaths
+            WHERE creator_id = $1
+            ORDER BY created_at DESC
+            "#
+        )
+        .bind(creator_id)
+        .fetch_all(&self.db)
+        .await
+        .map_err(|e| AppError::Internal(e.to_string()))?;
+
+        Ok(rows.into_iter().map(Starpath::from).collect())
+    }
+
+    // ==========================
+    // SEARCH STARPATHS
+    // ==========================
+    pub async fn search_starpaths(
+        &self,
+        query: String,
+    ) -> Result<Vec<Starpath>, AppError> {
+
+        let pattern = format!("%{}%", query);
+
+        let rows = sqlx::query_as::<_, StarpathRow>(
+            r#"
+            SELECT
+                starpath_id,
+                creator_id,
+                name,
+                description,
+                difficulty,
+                created_at
+            FROM starpaths
+            WHERE name ILIKE $1
+            ORDER BY name
+            LIMIT 10
+            "#,
+        )
+        .bind(pattern)
+        .fetch_all(&self.db)
+        .await
+        .map_err(|e| AppError::Internal(e.to_string()))?;
+
+        Ok(rows.into_iter().map(|r| r.into()).collect())
+    }
+
     // =========================
     // POST /starpaths
     // =========================
-    pub async fn create_starpath(&self, input: CreateStarpathInput) -> Result<Starpath, AppError> {
+    pub async fn create_starpath(
+        &self,
+        creator_id: Uuid,
+        name: String,
+        description: Option<String>,
+        difficulty: Option<String>,
+    ) -> Result<Starpath, AppError>{
         let row = sqlx::query_as::<_, StarpathRow>(
             r#"
             INSERT INTO starpaths (
@@ -72,10 +138,10 @@ impl StarpathsService {
             RETURNING *
             "#,
         )
-        .bind(input.creator_id)
-        .bind(input.name)
-        .bind(input.description)
-        .bind(input.difficulty)
+        .bind(creator_id)
+        .bind(name)
+        .bind(description)
+        .bind(difficulty)
         .fetch_one(&self.db)
         .await
         .map_err(|e| AppError::Internal(e.to_string()))?;

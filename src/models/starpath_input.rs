@@ -5,10 +5,6 @@ use uuid::Uuid;
 /// MVP : création manuelle d’un starpath
 #[derive(Debug, Deserialize)]
 pub struct CreateStarpathInput {
-    /// Temporaire tant que l’auth n’est pas branchée
-    /// (sera remplacé par user_id extrait du JWT)
-    pub creator_id: Uuid,
-
     pub name: String,
     pub description: Option<String>,
     pub difficulty: Option<String>,

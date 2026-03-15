@@ -9,7 +9,7 @@ use crate::routes::{
     health::health,
     starpaths::{
         add_starpath_lab, create_starpath, delete_starpath, delete_starpath_lab, get_starpath,
-        get_starpath_labs, list_starpaths, update_starpath, update_starpath_lab,
+        get_starpath_labs, list_starpaths, update_starpath, update_starpath_lab, my_starpaths, search_starpaths,
     },
 };
 
@@ -22,6 +22,8 @@ pub fn init_routes() -> Router<AppState> {
         .route("/health", get(health))
         // Starpaths CRUD
         .route("/starpaths", get(list_starpaths).post(create_starpath)) //quand on aura mis le private/public, mettre sécurité pour vérifier qui peut get quoi
+        .route("/mystarpaths", get(my_starpaths))
+        .route("/search", get(search_starpaths))
         .route("/starpaths/{id}", get(get_starpath).put(update_starpath).delete(delete_starpath),
         )
         // ⭐ Starpath Labs
