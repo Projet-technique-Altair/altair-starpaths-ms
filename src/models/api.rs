@@ -45,3 +45,11 @@ impl<T> ApiResponse<T> {
         }
     }
 }
+
+
+use serde::Deserialize;
+
+#[derive(Debug, Deserialize)]
+pub struct SearchStarpathsQuery {
+    pub q: String,
+}
