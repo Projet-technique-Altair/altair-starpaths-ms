@@ -1,10 +1,6 @@
-use serde::{Serialize, Deserialize};
-use uuid::Uuid;
+use serde::{Deserialize, Serialize};
 use sqlx::FromRow;
-
-/// =======================
-/// DB representation
-/// =======================
+use uuid::Uuid;
 
 #[derive(Debug, Clone, FromRow)]
 pub struct StarpathRow {
@@ -16,10 +12,6 @@ pub struct StarpathRow {
     pub created_at: chrono::NaiveDateTime,
 }
 
-/// =======================
-/// API representation
-/// =======================
-
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Starpath {
     pub starpath_id: Uuid,
@@ -29,10 +21,6 @@ pub struct Starpath {
     pub difficulty: Option<String>,
     pub created_at: chrono::NaiveDateTime,
 }
-
-/// =======================
-/// Conversion DB → API
-/// =======================
 
 impl From<StarpathRow> for Starpath {
     fn from(row: StarpathRow) -> Self {

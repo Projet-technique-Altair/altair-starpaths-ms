@@ -1,6 +1,6 @@
-use serde::{Serialize, Deserialize};
-use uuid::Uuid;
+use serde::{Deserialize, Serialize};
 use sqlx::FromRow;
+use uuid::Uuid;
 
 #[derive(Debug, Clone, FromRow)]
 pub struct StarpathProgressRow {
@@ -34,5 +34,3 @@ impl From<StarpathProgressRow> for StarpathProgress {
         }
     }
 }
-
-

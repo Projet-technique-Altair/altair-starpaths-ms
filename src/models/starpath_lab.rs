@@ -1,9 +1,10 @@
-use serde::{Serialize, Deserialize};
-use uuid::Uuid;
+use serde::{Deserialize, Serialize};
 use sqlx::FromRow;
+use uuid::Uuid;
 
 #[derive(Debug, Clone, FromRow)]
 pub struct StarpathLabRow {
+    #[allow(dead_code)]
     pub starpath_id: Uuid,
     pub lab_id: Uuid,
     pub position: i32,
