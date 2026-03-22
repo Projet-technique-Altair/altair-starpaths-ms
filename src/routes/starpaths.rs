@@ -66,12 +66,15 @@ pub async fn my_starpaths(
 // ==========================
 pub async fn search_starpaths(
     State(state): State<AppState>,
+    headers: HeaderMap,
     Query(params): Query<SearchStarpathsQuery>,
 ) -> Result<Json<ApiResponse<Vec<Starpath>>>, AppError> {
 
+    let caller = extract_caller(&headers)?;
+
     let starpaths = state
         .starpaths_service
-        .search_starpaths(params.q)
+        .search_starpaths(params.q, caller.user_id)
         .await?;
 
     Ok(Json(ApiResponse::success(starpaths)))
@@ -95,6 +98,7 @@ pub async fn create_starpath(
             input.name,
             input.description,
             input.difficulty,
+            input.visibility,
         )
         .await?;
 

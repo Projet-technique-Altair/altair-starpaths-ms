@@ -8,6 +8,7 @@ pub struct CreateStarpathInput {
     pub name: String,
     pub description: Option<String>,
     pub difficulty: Option<String>,
+    pub visibility: Option<String>,
 }
 
 /// Payload pour PUT /starpaths/:id
@@ -17,6 +18,7 @@ pub struct UpdateStarpathInput {
     pub name: Option<String>,
     pub description: Option<String>,
     pub difficulty: Option<String>,
+    pub visibility: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]

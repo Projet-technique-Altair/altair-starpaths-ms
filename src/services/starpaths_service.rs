@@ -25,8 +25,16 @@ impl StarpathsService {
     pub async fn list_starpaths(&self) -> Result<Vec<Starpath>, AppError> {
         let rows = sqlx::query_as::<_, StarpathRow>(
             r#"
-            SELECT *
+            SELECT
+            starpath_id,
+            creator_id,
+            name,
+            description,
+            difficulty,
+            visibility,
+            created_at
             FROM starpaths
+            WHERE visibility = 'public'
             ORDER BY created_at DESC
             "#,
         )
@@ -34,7 +42,7 @@ impl StarpathsService {
         .await
         .map_err(|e| AppError::Internal(e.to_string()))?;
 
-        Ok(rows.into_iter().map(Starpath::from).collect())
+        rows.into_iter().map(Starpath::try_from).collect()
     }
 
     // =========================
@@ -43,7 +51,14 @@ impl StarpathsService {
     pub async fn get_starpath(&self, starpath_id: Uuid) -> Result<Option<Starpath>, AppError> {
         let row = sqlx::query_as::<_, StarpathRow>(
             r#"
-            SELECT *
+            SELECT
+            starpath_id,
+            creator_id,
+            name,
+            description,
+            difficulty,
+            visibility,
+            created_at
             FROM starpaths
             WHERE starpath_id = $1
             "#,
@@ -53,7 +68,7 @@ impl StarpathsService {
         .await
         .map_err(|e| AppError::Internal(e.to_string()))?;
 
-        Ok(row.map(Starpath::from))
+        Ok(row.map(Starpath::try_from).transpose()?)
     }
 
     // ==========================
@@ -69,6 +84,7 @@ impl StarpathsService {
                 name,
                 description,
                 difficulty,
+                visibility,
                 created_at
             FROM starpaths
             WHERE creator_id = $1
@@ -80,7 +96,7 @@ impl StarpathsService {
         .await
         .map_err(|e| AppError::Internal(e.to_string()))?;
 
-        Ok(rows.into_iter().map(Starpath::from).collect())
+        rows.into_iter().map(Starpath::try_from).collect()
     }
 
     // ==========================
@@ -89,6 +105,7 @@ impl StarpathsService {
     pub async fn search_starpaths(
         &self,
         query: String,
+        caller_id: Uuid,
     ) -> Result<Vec<Starpath>, AppError> {
 
         let pattern = format!("%{}%", query);
@@ -101,19 +118,26 @@ impl StarpathsService {
                 name,
                 description,
                 difficulty,
+                visibility,
                 created_at
             FROM starpaths
-            WHERE name ILIKE $1
+            WHERE 
+                name ILIKE $1
+                AND (
+                    visibility = 'public'
+                    OR creator_id = $2
+                )
             ORDER BY name
             LIMIT 10
             "#,
         )
         .bind(pattern)
+        .bind(caller_id)
         .fetch_all(&self.db)
         .await
         .map_err(|e| AppError::Internal(e.to_string()))?;
 
-        Ok(rows.into_iter().map(|r| r.into()).collect())
+        rows.into_iter().map(Starpath::try_from).collect()
     }
 
     // =========================
@@ -125,16 +149,26 @@ impl StarpathsService {
         name: String,
         description: Option<String>,
         difficulty: Option<String>,
+        visibility: Option<String>,
     ) -> Result<Starpath, AppError>{
+
+        let visibility = visibility.map(|v| {
+            if v.len() > 16 {
+                return Err(AppError::BadRequest("visibility too long".into()));
+            }
+            Ok(v.to_lowercase())
+        }).transpose()?.unwrap_or("private".to_string());
+
         let row = sqlx::query_as::<_, StarpathRow>(
             r#"
             INSERT INTO starpaths (
                 creator_id,
                 name,
                 description,
-                difficulty
+                difficulty,
+                visibility
             )
-            VALUES ($1, $2, $3, $4)
+            VALUES ($1, $2, $3, $4, $5)
             RETURNING *
             "#,
         )
@@ -142,11 +176,12 @@ impl StarpathsService {
         .bind(name)
         .bind(description)
         .bind(difficulty)
+        .bind(visibility)
         .fetch_one(&self.db)
         .await
         .map_err(|e| AppError::Internal(e.to_string()))?;
 
-        Ok(Starpath::from(row))
+        Starpath::try_from(row)
     }
 
     // =========================
@@ -157,13 +192,22 @@ impl StarpathsService {
         starpath_id: Uuid,
         input: UpdateStarpathInput,
     ) -> Result<Option<Starpath>, AppError> {
+
+        let visibility = input.visibility.map(|v| {
+            if v.len() > 16 {
+                return Err(AppError::BadRequest("visibility too long".into()));
+            }
+            Ok(v.to_lowercase())
+        }).transpose()?;
+
         let row = sqlx::query_as::<_, StarpathRow>(
             r#"
             UPDATE starpaths
             SET
                 name = COALESCE($2, name),
                 description = COALESCE($3, description),
-                difficulty = COALESCE($4, difficulty)
+                difficulty = COALESCE($4, difficulty),
+                visibility = COALESCE($5, visibility)
             WHERE starpath_id = $1
             RETURNING *
             "#,
@@ -172,11 +216,12 @@ impl StarpathsService {
         .bind(input.name)
         .bind(input.description)
         .bind(input.difficulty)
+        .bind(visibility)
         .fetch_optional(&self.db)
         .await
         .map_err(|e| AppError::Internal(e.to_string()))?;
 
-        Ok(row.map(Starpath::from))
+        Ok(row.map(Starpath::try_from).transpose()?)
     }
 
     // =========================
