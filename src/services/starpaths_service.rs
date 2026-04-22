@@ -1,3 +1,30 @@
+/**
+ * @file starpaths_service — business logic for starpath management.
+ *
+ * @remarks
+ * Handles all core operations related to Starpaths:
+ *
+ *  - Starpath lifecycle (create, read, update, delete)
+ *  - Lab composition and ordering within starpaths
+ *  - Search and filtering (public + owned)
+ *  - User progression tracking
+ *
+ * Acts as the bridge between:
+ *
+ *  - Database (PostgreSQL via SQLx)
+ *  - HTTP handlers (routes layer)
+ *
+ * Key characteristics:
+ *
+ *  - Direct SQL queries (no ORM)
+ *  - Visibility rules (public vs private)
+ *  - Idempotent progression start
+ *  - Ordered labs via `position`
+ *  - Explicit error handling with `AppError`
+ *
+ * @packageDocumentation
+ */
+
 use sqlx::PgPool;
 use uuid::Uuid;
 
@@ -100,7 +127,7 @@ impl StarpathsService {
     }
 
     // ==========================
-    // SEARCH STARPATHS
+    // GET /starpaths/search?q=
     // ==========================
     pub async fn search_starpaths(
         &self,
@@ -141,7 +168,7 @@ impl StarpathsService {
     }
 
     // =========================
-    // POST /starpaths
+    // POST /starpaths (creator only)
     // =========================
     pub async fn create_starpath(
         &self,
@@ -242,6 +269,9 @@ impl StarpathsService {
         Ok(result.rows_affected())
     }
 
+    // =========================
+    // GET /starpaths/{id}/labs
+    // =========================
     pub async fn get_starpath_labs(&self, starpath_id: Uuid) -> Result<Vec<StarpathLab>, AppError> {
         let rows = sqlx::query_as::<_, StarpathLabRow>(
             r#"
@@ -259,6 +289,9 @@ impl StarpathsService {
         Ok(rows.into_iter().map(StarpathLab::from).collect())
     }
 
+    // ======================================
+    // POST /starpaths/{id}/labs
+    // ======================================
     pub async fn add_lab_to_starpath(
         &self,
         starpath_id: Uuid,
@@ -280,6 +313,9 @@ impl StarpathsService {
         Ok(())
     }
 
+    // =========================================
+    // PUT /starpaths/{id}/labs/{lab_id}
+    // =========================================
     pub async fn update_starpath_lab_position(
         &self,
         starpath_id: Uuid,
@@ -307,6 +343,9 @@ impl StarpathsService {
         Ok(())
     }
 
+    // ==========================================
+    // DELETE /starpaths/{id}/labs/{lab_id}
+    // ==========================================
     pub async fn remove_lab_from_starpath(
         &self,
         starpath_id: Uuid,
@@ -331,12 +370,14 @@ impl StarpathsService {
         Ok(())
     }
 
+    // =========================
+    // POST /starpaths/:id/start
+    // =========================
     pub async fn start_starpath(
         &self,
         user_id: Uuid,
         starpath_id: Uuid,
     ) -> Result<StarpathProgress, AppError> {
-        // 1️⃣ Vérifier si déjà commencé (idempotence)
         if let Some(row) = sqlx::query_as::<_, StarpathProgressRow>(
             r#"
             SELECT *
@@ -353,7 +394,6 @@ impl StarpathsService {
             return Ok(StarpathProgress::from(row));
         }
 
-        // 2️⃣ Créer progression
         let row = sqlx::query_as::<_, StarpathProgressRow>(
             r#"
             INSERT INTO user_starpath_progress (
@@ -375,9 +415,9 @@ impl StarpathsService {
         Ok(StarpathProgress::from(row))
     }
 
-    // =========================
-    // GET user starpath progress
-    // =========================
+    // =================================
+    // GET /starpaths/:id/progress
+    // =================================
     pub async fn get_starpath_progress(
         &self,
         user_id: Uuid,

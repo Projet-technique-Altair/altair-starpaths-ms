@@ -1,3 +1,25 @@
+/**
+ * @file starpath — core starpath domain model.
+ *
+ * @remarks
+ * Defines the main Starpath entity and its visibility rules:
+ *
+ *  - Database model (`StarpathRow`)
+ *  - API model (`Starpath`)
+ *  - Visibility enum (`StarpathVisibility`)
+ *
+ * Handles conversion from raw database data to strongly-typed domain model.
+ *
+ * Key characteristics:
+ *
+ *  - Strong typing for visibility via enum (Public / Private)
+ *  - Validation during conversion (`TryFrom`)
+ *  - Prevents invalid visibility values from propagating
+ *  - Includes metadata (creator, timestamps, difficulty)
+ *
+ * @packageDocumentation
+ */
+
 use serde::{Deserialize, Serialize};
 use sqlx::FromRow;
 use uuid::Uuid;

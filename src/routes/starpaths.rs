@@ -1,3 +1,31 @@
+/**
+ * @file starpaths — HTTP routes for starpath management.
+ *
+ * @remarks
+ * Defines all REST endpoints related to Starpaths:
+ *
+ *  - Starpath lifecycle (list, create, update, delete)
+ *  - Search and filtering
+ *  - Lab composition and ordering
+ *  - User progression tracking
+ *
+ * Each handler:
+ *
+ *  - Extracts caller identity when needed (`extract_caller`)
+ *  - Applies RBAC rules (admin, owner)
+ *  - Delegates logic to `StarpathsService`
+ *  - Returns standardized responses (`ApiResponse`)
+ *
+ * Key characteristics:
+ *
+ *  - Public vs restricted endpoints (visibility + ownership)
+ *  - Centralized authorization checks
+ *  - Consistent error handling via `AppError`
+ *  - MVP endpoints for progression (temporary user input)
+ *
+ * @packageDocumentation
+ */
+
 use axum::{
     extract::{Path, State, Query},
     Json,
@@ -287,7 +315,7 @@ pub async fn delete_starpath_lab(
 pub async fn start_starpath(
     State(state): State<AppState>,
     Path(starpath_id): Path<Uuid>,
-    Json(user_id): Json<Uuid>, // MVP TEMPORAIRE
+    Json(user_id): Json<Uuid>,
 ) -> Result<Json<ApiResponse<StarpathProgress>>, AppError> {
     let progress = state
         .starpaths_service
@@ -303,7 +331,7 @@ pub async fn start_starpath(
 pub async fn get_starpath_progress(
     State(state): State<AppState>,
     Path(starpath_id): Path<Uuid>,
-    Json(user_id): Json<Uuid>, // MVP TEMPORAIRE
+    Json(user_id): Json<Uuid>, 
 ) -> Result<Json<ApiResponse<StarpathProgress>>, AppError> {
     let progress = state
         .starpaths_service

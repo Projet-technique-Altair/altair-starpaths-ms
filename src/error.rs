@@ -1,3 +1,27 @@
+/**
+ * @file error — application-wide error handling.
+ *
+ * @remarks
+ * Defines the unified error system used across the Groups service.
+ *
+ *  - Central `AppError` enum for all error types
+ *  - Automatic conversion to HTTP responses via `IntoResponse`
+ *  - Standardized error format (`ApiErrorResponse`)
+ *
+ * Error categories:
+ *
+ *  - NotFound, BadRequest, Unauthorized, Forbidden, Conflict, Internal
+ *
+ * Key characteristics:
+ *
+ *  - Maps errors to appropriate HTTP status codes
+ *  - Provides consistent error structure (code, message, meta)
+ *  - Generates request metadata for tracing/debugging
+ *  - Converts database errors (`sqlx::Error`) into internal errors
+ *
+ * @packageDocumentation
+ */
+
 use axum::{
     http::StatusCode,
     response::{IntoResponse, Response},

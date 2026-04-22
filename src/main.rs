@@ -1,3 +1,25 @@
+/**
+ * @file main — application entry point.
+ *
+ * @remarks
+ * Bootstraps and starts the Starpaths microservice.
+ *
+ *  - Loads environment variables (`dotenv`)
+ *  - Initializes application state (`AppState`)
+ *  - Configures CORS policy
+ *  - Registers routes and middleware
+ *  - Starts the HTTP server (Axum)
+ *
+ * Key characteristics:
+ *
+ *  - Async runtime powered by Tokio
+ *  - Configurable port via environment variable (`PORT`)
+ *  - Global CORS enabled (to be restricted in production)
+ *  - Centralized startup logic
+ *
+ * @packageDocumentation
+ */
+
 use tower_http::cors::{Any, CorsLayer};
 
 mod error;

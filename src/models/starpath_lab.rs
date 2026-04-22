@@ -1,3 +1,24 @@
+/**
+ * @file starpath_lab — starpath lab association models.
+ *
+ * @remarks
+ * Defines the relationship between starpaths and their labs:
+ *
+ *  - Database representation (`StarpathLabRow`)
+ *  - API-facing model (`StarpathLab`)
+ *
+ * Each lab is linked to a starpath with a specific position,
+ * defining its order within the learning path.
+ *
+ * Key characteristics:
+ *
+ *  - Separation between DB model and API model
+ *  - Ordered structure via `position`
+ *  - Simple conversion using `From`
+ *
+ * @packageDocumentation
+ */
+
 use serde::{Deserialize, Serialize};
 use sqlx::FromRow;
 use uuid::Uuid;

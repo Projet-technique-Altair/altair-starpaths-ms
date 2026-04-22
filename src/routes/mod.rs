@@ -1,3 +1,30 @@
+/**
+ * @file routes — application route registration.
+ *
+ * @remarks
+ * Defines and registers all HTTP routes for the Starpaths service.
+ *
+ *  - Mounts feature routes (starpaths, health)
+ *  - Binds endpoints to their handlers
+ *  - Attaches shared application state (`AppState`)
+ *
+ * Route categories:
+ *
+ *  - Health (`/health`)
+ *  - Starpaths CRUD (`/starpaths`, `/mystarpaths`)
+ *  - Search (`/search`)
+ *  - Lab composition (add/update/remove labs)
+ *  - Progress tracking (`/start`, `/progress`)
+ *
+ * Key characteristics:
+ *
+ *  - Centralized routing configuration
+ *  - Clear separation between routing and handler logic
+ *  - Supports both public and restricted endpoints
+ *
+ * @packageDocumentation
+ */
+
 use axum::{
     routing::{get, post, put},
     Router,
@@ -21,7 +48,7 @@ pub fn init_routes() -> Router<AppState> {
         // Health
         .route("/health", get(health))
         // Starpaths CRUD
-        .route("/starpaths", get(list_starpaths).post(create_starpath)) //quand on aura mis le private/public, mettre sécurité pour vérifier qui peut get quoi
+        .route("/starpaths", get(list_starpaths).post(create_starpath))
         .route("/mystarpaths", get(my_starpaths))
         .route("/search", get(search_starpaths))
         .route("/starpaths/{id}", get(get_starpath).put(update_starpath).delete(delete_starpath),
