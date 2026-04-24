@@ -16,10 +16,8 @@
  *
  * @packageDocumentation
  */
-
 use serde::Deserialize;
 use uuid::Uuid;
-
 
 #[derive(Debug, Deserialize)]
 pub struct CreateStarpathInput {
@@ -28,7 +26,6 @@ pub struct CreateStarpathInput {
     pub difficulty: Option<String>,
     pub visibility: Option<String>,
 }
-
 
 #[derive(Debug, Deserialize)]
 pub struct UpdateStarpathInput {

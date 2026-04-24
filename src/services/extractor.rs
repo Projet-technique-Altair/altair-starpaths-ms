@@ -1,3 +1,5 @@
+use crate::error::AppError;
+use axum::http::HeaderMap;
 /**
  * @file extractor — caller identity extraction from request headers.
  *
@@ -17,11 +19,7 @@
  *
  * @packageDocumentation
  */
-
 use uuid::Uuid;
-use axum::http::HeaderMap;
-use crate::error::AppError;
-
 
 #[derive(Debug)]
 pub struct Caller {
@@ -35,7 +33,6 @@ pub fn extract_caller(headers: &HeaderMap) -> Result<Caller, AppError> {
         .and_then(|h| h.to_str().ok())
         .and_then(|s| Uuid::parse_str(s).ok())
         .ok_or_else(|| AppError::Unauthorized("Missing caller identity".to_string()))?;
-
 
     let roles = headers
         .get("x-altair-roles")

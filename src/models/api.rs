@@ -20,7 +20,6 @@
  *
  * @packageDocumentation
  */
-
 use serde::Serialize;
 
 #[derive(Serialize)]
@@ -68,7 +67,6 @@ impl<T> ApiResponse<T> {
         }
     }
 }
-
 
 use serde::Deserialize;
 

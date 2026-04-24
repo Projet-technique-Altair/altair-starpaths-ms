@@ -21,7 +21,6 @@
  *
  * @packageDocumentation
  */
-
 use crate::services::starpaths_service::StarpathsService;
 use sqlx::PgPool;
 

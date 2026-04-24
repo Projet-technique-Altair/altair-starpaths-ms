@@ -24,14 +24,13 @@
  *
  * @packageDocumentation
  */
-
 use sqlx::PgPool;
 use uuid::Uuid;
 
 use crate::{
     error::AppError,
     models::starpath::{Starpath, StarpathRow},
-    models::starpath_input::{AddStarpathLabInput, CreateStarpathInput, UpdateStarpathInput},
+    models::starpath_input::{AddStarpathLabInput, UpdateStarpathInput},
     models::starpath_lab::{StarpathLab, StarpathLabRow},
     models::starpath_progress::{StarpathProgress, StarpathProgressRow},
 };
@@ -72,6 +71,67 @@ impl StarpathsService {
         rows.into_iter().map(Starpath::try_from).collect()
     }
 
+    pub async fn list_starpaths_admin(
+        &self,
+        query: Option<String>,
+        visibility: Option<String>,
+        limit: i64,
+        offset: i64,
+    ) -> Result<(Vec<Starpath>, i64), AppError> {
+        let query_pattern = query
+            .map(|value| value.trim().to_string())
+            .filter(|value| !value.is_empty())
+            .map(|value| format!("%{}%", value));
+        let visibility_filter = visibility
+            .map(|value| value.trim().to_lowercase())
+            .filter(|value| !value.is_empty() && value != "all");
+
+        let rows = sqlx::query_as::<_, StarpathRow>(
+            r#"
+            SELECT
+                starpath_id,
+                creator_id,
+                name,
+                description,
+                difficulty,
+                visibility,
+                created_at
+            FROM starpaths
+            WHERE ($1::TEXT IS NULL OR visibility = $1)
+              AND ($2::TEXT IS NULL OR name ILIKE $2 OR description ILIKE $2)
+            ORDER BY created_at DESC
+            LIMIT $3
+            OFFSET $4
+            "#,
+        )
+        .bind(visibility_filter.as_deref())
+        .bind(query_pattern.as_deref())
+        .bind(limit)
+        .bind(offset)
+        .fetch_all(&self.db)
+        .await
+        .map_err(|e| AppError::Internal(e.to_string()))?;
+
+        let total = sqlx::query_scalar::<_, i64>(
+            r#"
+            SELECT COUNT(*)
+            FROM starpaths
+            WHERE ($1::TEXT IS NULL OR visibility = $1)
+              AND ($2::TEXT IS NULL OR name ILIKE $2 OR description ILIKE $2)
+            "#,
+        )
+        .bind(visibility_filter.as_deref())
+        .bind(query_pattern.as_deref())
+        .fetch_one(&self.db)
+        .await
+        .map_err(|e| AppError::Internal(e.to_string()))?;
+
+        rows.into_iter()
+            .map(Starpath::try_from)
+            .collect::<Result<Vec<_>, _>>()
+            .map(|items| (items, total))
+    }
+
     // =========================
     // GET /starpaths/:id
     // =========================
@@ -102,7 +162,6 @@ impl StarpathsService {
     // GET /mystarpaths (creator's starpaths only)
     // ==========================
     pub async fn my_starpaths(&self, creator_id: Uuid) -> Result<Vec<Starpath>, AppError> {
-
         let rows = sqlx::query_as::<_, StarpathRow>(
             r#"
             SELECT
@@ -116,7 +175,7 @@ impl StarpathsService {
             FROM starpaths
             WHERE creator_id = $1
             ORDER BY created_at DESC
-            "#
+            "#,
         )
         .bind(creator_id)
         .fetch_all(&self.db)
@@ -134,7 +193,6 @@ impl StarpathsService {
         query: String,
         caller_id: Uuid,
     ) -> Result<Vec<Starpath>, AppError> {
-
         let pattern = format!("%{}%", query);
 
         let rows = sqlx::query_as::<_, StarpathRow>(
@@ -177,14 +235,16 @@ impl StarpathsService {
         description: Option<String>,
         difficulty: Option<String>,
         visibility: Option<String>,
-    ) -> Result<Starpath, AppError>{
-
-        let visibility = visibility.map(|v| {
-            if v.len() > 16 {
-                return Err(AppError::BadRequest("visibility too long".into()));
-            }
-            Ok(v.to_lowercase())
-        }).transpose()?.unwrap_or("private".to_string());
+    ) -> Result<Starpath, AppError> {
+        let visibility = visibility
+            .map(|v| {
+                if v.len() > 16 {
+                    return Err(AppError::BadRequest("visibility too long".into()));
+                }
+                Ok(v.to_lowercase())
+            })
+            .transpose()?
+            .unwrap_or("private".to_string());
 
         let row = sqlx::query_as::<_, StarpathRow>(
             r#"
@@ -219,13 +279,15 @@ impl StarpathsService {
         starpath_id: Uuid,
         input: UpdateStarpathInput,
     ) -> Result<Option<Starpath>, AppError> {
-
-        let visibility = input.visibility.map(|v| {
-            if v.len() > 16 {
-                return Err(AppError::BadRequest("visibility too long".into()));
-            }
-            Ok(v.to_lowercase())
-        }).transpose()?;
+        let visibility = input
+            .visibility
+            .map(|v| {
+                if v.len() > 16 {
+                    return Err(AppError::BadRequest("visibility too long".into()));
+                }
+                Ok(v.to_lowercase())
+            })
+            .transpose()?;
 
         let row = sqlx::query_as::<_, StarpathRow>(
             r#"

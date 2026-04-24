@@ -19,7 +19,6 @@
  *
  * @packageDocumentation
  */
-
 use tower_http::cors::{Any, CorsLayer};
 
 mod error;

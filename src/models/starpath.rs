@@ -19,7 +19,6 @@
  *
  * @packageDocumentation
  */
-
 use serde::{Deserialize, Serialize};
 use sqlx::FromRow;
 use uuid::Uuid;
@@ -32,7 +31,6 @@ pub enum StarpathVisibility {
     Private,
     Public,
 }
-
 
 #[derive(Debug, Clone, FromRow)]
 pub struct StarpathRow {
@@ -56,10 +54,9 @@ pub struct Starpath {
     pub created_at: chrono::NaiveDateTime,
 }
 
-impl TryFrom<StarpathRow> for Starpath  {
+impl TryFrom<StarpathRow> for Starpath {
     type Error = AppError;
     fn try_from(row: StarpathRow) -> Result<Self, Self::Error> {
-
         let visibility = match row.visibility.as_str() {
             "private" => StarpathVisibility::Private,
             "public" => StarpathVisibility::Public,
