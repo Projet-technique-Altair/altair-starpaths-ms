@@ -35,8 +35,9 @@ use crate::routes::{
     health::health,
     starpaths::{
         add_starpath_lab, create_starpath, delete_starpath, delete_starpath_lab, get_starpath,
-        get_starpath_labs, list_starpaths, list_starpaths_admin, my_starpaths, search_starpaths,
-        update_starpath, update_starpath_lab,
+        get_starpath_labs, list_admin_user_starpath_progress, list_starpaths, list_starpaths_admin,
+        my_starpaths, search_starpaths, update_starpath, update_starpath_content_status_admin,
+        update_starpath_lab,
     },
 };
 
@@ -49,6 +50,14 @@ pub fn init_routes() -> Router<AppState> {
         .route("/health", get(health))
         // Starpaths CRUD
         .route("/admin/starpaths", get(list_starpaths_admin))
+        .route(
+            "/admin/starpaths/{id}/content-status",
+            axum::routing::patch(update_starpath_content_status_admin),
+        )
+        .route(
+            "/admin/users/{id}/progress",
+            get(list_admin_user_starpath_progress),
+        )
         .route("/starpaths", get(list_starpaths).post(create_starpath))
         .route("/mystarpaths", get(my_starpaths))
         .route("/search", get(search_starpaths))

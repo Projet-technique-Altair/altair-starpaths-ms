@@ -58,9 +58,11 @@ impl StarpathsService {
             description,
             difficulty,
             visibility,
+            content_status,
             created_at
             FROM starpaths
             WHERE visibility = 'public'
+              AND content_status = 'active'
             ORDER BY created_at DESC
             "#,
         )
@@ -75,6 +77,7 @@ impl StarpathsService {
         &self,
         query: Option<String>,
         visibility: Option<String>,
+        content_status: Option<String>,
         limit: i64,
         offset: i64,
     ) -> Result<(Vec<Starpath>, i64), AppError> {
@@ -83,6 +86,9 @@ impl StarpathsService {
             .filter(|value| !value.is_empty())
             .map(|value| format!("%{}%", value));
         let visibility_filter = visibility
+            .map(|value| value.trim().to_lowercase())
+            .filter(|value| !value.is_empty() && value != "all");
+        let status_filter = content_status
             .map(|value| value.trim().to_lowercase())
             .filter(|value| !value.is_empty() && value != "all");
 
@@ -95,17 +101,20 @@ impl StarpathsService {
                 description,
                 difficulty,
                 visibility,
+                content_status,
                 created_at
             FROM starpaths
             WHERE ($1::TEXT IS NULL OR visibility = $1)
               AND ($2::TEXT IS NULL OR name ILIKE $2 OR description ILIKE $2)
+              AND ($3::TEXT IS NULL OR content_status = $3)
             ORDER BY created_at DESC
-            LIMIT $3
-            OFFSET $4
+            LIMIT $4
+            OFFSET $5
             "#,
         )
         .bind(visibility_filter.as_deref())
         .bind(query_pattern.as_deref())
+        .bind(status_filter.as_deref())
         .bind(limit)
         .bind(offset)
         .fetch_all(&self.db)
@@ -118,10 +127,12 @@ impl StarpathsService {
             FROM starpaths
             WHERE ($1::TEXT IS NULL OR visibility = $1)
               AND ($2::TEXT IS NULL OR name ILIKE $2 OR description ILIKE $2)
+              AND ($3::TEXT IS NULL OR content_status = $3)
             "#,
         )
         .bind(visibility_filter.as_deref())
         .bind(query_pattern.as_deref())
+        .bind(status_filter.as_deref())
         .fetch_one(&self.db)
         .await
         .map_err(|e| AppError::Internal(e.to_string()))?;
@@ -145,6 +156,7 @@ impl StarpathsService {
             description,
             difficulty,
             visibility,
+            content_status,
             created_at
             FROM starpaths
             WHERE starpath_id = $1
@@ -171,9 +183,11 @@ impl StarpathsService {
                 description,
                 difficulty,
                 visibility,
+                content_status,
                 created_at
             FROM starpaths
             WHERE creator_id = $1
+              AND content_status = 'active'
             ORDER BY created_at DESC
             "#,
         )
@@ -204,10 +218,12 @@ impl StarpathsService {
                 description,
                 difficulty,
                 visibility,
+                content_status,
                 created_at
             FROM starpaths
             WHERE 
                 name ILIKE $1
+                AND content_status = 'active'
                 AND (
                     visibility = 'public'
                     OR creator_id = $2
@@ -306,6 +322,34 @@ impl StarpathsService {
         .bind(input.description)
         .bind(input.difficulty)
         .bind(visibility)
+        .fetch_optional(&self.db)
+        .await
+        .map_err(|e| AppError::Internal(e.to_string()))?;
+
+        Ok(row.map(Starpath::try_from).transpose()?)
+    }
+
+    pub async fn update_starpath_content_status(
+        &self,
+        starpath_id: Uuid,
+        content_status: &str,
+    ) -> Result<Option<Starpath>, AppError> {
+        if !matches!(content_status, "active" | "archived") {
+            return Err(AppError::BadRequest(
+                "content_status must be active or archived".into(),
+            ));
+        }
+
+        let row = sqlx::query_as::<_, StarpathRow>(
+            r#"
+            UPDATE starpaths
+            SET content_status = $2
+            WHERE starpath_id = $1
+            RETURNING *
+            "#,
+        )
+        .bind(starpath_id)
+        .bind(content_status)
         .fetch_optional(&self.db)
         .await
         .map_err(|e| AppError::Internal(e.to_string()))?;
@@ -506,5 +550,31 @@ impl StarpathsService {
         .map_err(|e| AppError::Internal(e.to_string()))?;
 
         Ok(row.map(StarpathProgress::from))
+    }
+
+    pub async fn list_starpath_progress_for_user(
+        &self,
+        user_id: Uuid,
+    ) -> Result<Vec<StarpathProgress>, AppError> {
+        let rows = sqlx::query_as::<_, StarpathProgressRow>(
+            r#"
+            SELECT
+                user_id,
+                starpath_id,
+                current_position,
+                status,
+                started_at,
+                completed_at
+            FROM user_starpath_progress
+            WHERE user_id = $1
+            ORDER BY started_at DESC
+            "#,
+        )
+        .bind(user_id)
+        .fetch_all(&self.db)
+        .await
+        .map_err(|e| AppError::Internal(e.to_string()))?;
+
+        Ok(rows.into_iter().map(StarpathProgress::from).collect())
     }
 }

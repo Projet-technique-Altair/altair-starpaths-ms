@@ -82,7 +82,13 @@ pub async fn list_starpaths_admin(
     let offset = params.offset.unwrap_or(0).max(0);
     let (items, total) = state
         .starpaths_service
-        .list_starpaths_admin(params.q, params.visibility, limit, offset)
+        .list_starpaths_admin(
+            params.q,
+            params.visibility,
+            params.content_status,
+            limit,
+            offset,
+        )
         .await?;
 
     Ok(Json(ApiResponse::success(PaginatedStarpaths {
@@ -386,12 +392,64 @@ pub async fn get_starpath_progress(
     Ok(Json(ApiResponse::success(progress)))
 }
 
+pub async fn list_admin_user_starpath_progress(
+    State(state): State<AppState>,
+    headers: axum::http::HeaderMap,
+    Path(user_id): Path<Uuid>,
+) -> Result<Json<ApiResponse<Vec<StarpathProgress>>>, AppError> {
+    let caller = crate::services::extractor::extract_caller(&headers)?;
+    let is_admin = caller.roles.iter().any(|r| r == "admin");
+
+    if !is_admin {
+        return Err(AppError::Forbidden(
+            "Admin role is required to inspect starpath progress".into(),
+        ));
+    }
+
+    let progress = state
+        .starpaths_service
+        .list_starpath_progress_for_user(user_id)
+        .await?;
+
+    Ok(Json(ApiResponse::success(progress)))
+}
+
+pub async fn update_starpath_content_status_admin(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path(starpath_id): Path<Uuid>,
+    Json(payload): Json<UpdateContentStatusPayload>,
+) -> Result<Json<ApiResponse<Starpath>>, AppError> {
+    let caller = extract_caller(&headers)?;
+    let is_admin = caller.roles.iter().any(|r| r == "admin");
+
+    if !is_admin {
+        return Err(AppError::Forbidden(
+            "Admin role is required to update starpath lifecycle".into(),
+        ));
+    }
+
+    let starpath = state
+        .starpaths_service
+        .update_starpath_content_status(starpath_id, payload.content_status.trim())
+        .await?
+        .ok_or_else(|| AppError::NotFound("Starpath not found".into()))?;
+
+    Ok(Json(ApiResponse::success(starpath)))
+}
+
 #[derive(Deserialize)]
 pub struct AdminStarpathsQuery {
     pub q: Option<String>,
     pub visibility: Option<String>,
+    pub content_status: Option<String>,
     pub limit: Option<i64>,
     pub offset: Option<i64>,
+}
+
+#[derive(Deserialize)]
+pub struct UpdateContentStatusPayload {
+    pub content_status: String,
 }
 
 #[derive(Serialize)]
