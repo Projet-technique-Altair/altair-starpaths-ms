@@ -32,7 +32,7 @@ use crate::{
  *  - Public vs restricted endpoints (visibility + ownership)
  *  - Centralized authorization checks
  *  - Consistent error handling via `AppError`
- *  - MVP endpoints for progression (temporary user input)
+ *  - Authenticated progression endpoints for learners
  *
  * @packageDocumentation
  */
@@ -360,32 +360,37 @@ pub async fn delete_starpath_lab(
 }
 
 // ======================================================
-// POST /starpaths/:id/start (MVP sans auth)
+// POST /starpaths/:id/start
 // ======================================================
 pub async fn start_starpath(
     State(state): State<AppState>,
+    headers: HeaderMap,
     Path(starpath_id): Path<Uuid>,
-    Json(user_id): Json<Uuid>,
 ) -> Result<Json<ApiResponse<StarpathProgress>>, AppError> {
+    let caller = extract_caller(&headers)?;
+    let is_admin = caller.roles.iter().any(|r| r == "admin");
+
     let progress = state
         .starpaths_service
-        .start_starpath(user_id, starpath_id)
+        .start_starpath(caller.user_id, starpath_id, is_admin)
         .await?;
 
     Ok(Json(ApiResponse::success(progress)))
 }
 
 // ======================================================
-// GET /starpaths/:id/progress (MVP sans auth)
+// GET /starpaths/:id/progress
 // ======================================================
 pub async fn get_starpath_progress(
     State(state): State<AppState>,
+    headers: HeaderMap,
     Path(starpath_id): Path<Uuid>,
-    Json(user_id): Json<Uuid>,
 ) -> Result<Json<ApiResponse<StarpathProgress>>, AppError> {
+    let caller = extract_caller(&headers)?;
+
     let progress = state
         .starpaths_service
-        .get_starpath_progress(user_id, starpath_id)
+        .get_starpath_progress(caller.user_id, starpath_id)
         .await?
         .ok_or_else(|| AppError::NotFound("Progress not found".into()))?;
 

@@ -24,12 +24,13 @@
  *
  * @packageDocumentation
  */
+use reqwest::Client;
 use sqlx::PgPool;
 use uuid::Uuid;
 
 use crate::{
     error::AppError,
-    models::starpath::{Starpath, StarpathRow},
+    models::starpath::{Starpath, StarpathRow, StarpathVisibility},
     models::starpath_input::{AddStarpathLabInput, UpdateStarpathInput},
     models::starpath_lab::{StarpathLab, StarpathLabRow},
     models::starpath_progress::{StarpathProgress, StarpathProgressRow},
@@ -38,11 +39,20 @@ use crate::{
 #[derive(Clone)]
 pub struct StarpathsService {
     db: PgPool,
+    http: Client,
+    groups_ms_base: String,
 }
 
 impl StarpathsService {
     pub fn new(db: PgPool) -> Self {
-        Self { db }
+        let groups_ms_base =
+            std::env::var("GROUPS_MS_URL").unwrap_or_else(|_| "http://localhost:3006".to_string());
+
+        Self {
+            db,
+            http: Client::new(),
+            groups_ms_base,
+        }
     }
 
     // =========================
@@ -167,7 +177,7 @@ impl StarpathsService {
         .await
         .map_err(|e| AppError::Internal(e.to_string()))?;
 
-        Ok(row.map(Starpath::try_from).transpose()?)
+        row.map(Starpath::try_from).transpose()
     }
 
     // ==========================
@@ -239,66 +249,6 @@ impl StarpathsService {
         .map_err(|e| AppError::Internal(e.to_string()))?;
 
         rows.into_iter().map(Starpath::try_from).collect()
-    }
-
-    // ==========================
-    // GET /mystarpaths (creator's starpaths only)
-    // ==========================
-    pub async fn my_starpaths(&self, creator_id: Uuid) -> Result<Vec<Starpath>, AppError> {
-
-        let rows = sqlx::query_as::<_, StarpathRow>(
-            r#"
-            SELECT
-                starpath_id,
-                creator_id,
-                name,
-                description,
-                difficulty,
-                created_at
-            FROM starpaths
-            WHERE creator_id = $1
-            ORDER BY created_at DESC
-            "#
-        )
-        .bind(creator_id)
-        .fetch_all(&self.db)
-        .await
-        .map_err(|e| AppError::Internal(e.to_string()))?;
-
-        Ok(rows.into_iter().map(Starpath::from).collect())
-    }
-
-    // ==========================
-    // SEARCH STARPATHS
-    // ==========================
-    pub async fn search_starpaths(
-        &self,
-        query: String,
-    ) -> Result<Vec<Starpath>, AppError> {
-
-        let pattern = format!("%{}%", query);
-
-        let rows = sqlx::query_as::<_, StarpathRow>(
-            r#"
-            SELECT
-                starpath_id,
-                creator_id,
-                name,
-                description,
-                difficulty,
-                created_at
-            FROM starpaths
-            WHERE name ILIKE $1
-            ORDER BY name
-            LIMIT 10
-            "#,
-        )
-        .bind(pattern)
-        .fetch_all(&self.db)
-        .await
-        .map_err(|e| AppError::Internal(e.to_string()))?;
-
-        Ok(rows.into_iter().map(|r| r.into()).collect())
     }
 
     // =========================
@@ -386,7 +336,7 @@ impl StarpathsService {
         .await
         .map_err(|e| AppError::Internal(e.to_string()))?;
 
-        Ok(row.map(Starpath::try_from).transpose()?)
+        row.map(Starpath::try_from).transpose()
     }
 
     pub async fn update_starpath_content_status(
@@ -414,7 +364,7 @@ impl StarpathsService {
         .await
         .map_err(|e| AppError::Internal(e.to_string()))?;
 
-        Ok(row.map(Starpath::try_from).transpose()?)
+        row.map(Starpath::try_from).transpose()
     }
 
     // =========================
@@ -543,10 +493,20 @@ impl StarpathsService {
         &self,
         user_id: Uuid,
         starpath_id: Uuid,
+        is_admin: bool,
     ) -> Result<StarpathProgress, AppError> {
+        self.ensure_starpath_can_start(user_id, starpath_id, is_admin)
+            .await?;
+
         if let Some(row) = sqlx::query_as::<_, StarpathProgressRow>(
             r#"
-            SELECT *
+            SELECT
+                user_id,
+                starpath_id,
+                current_position,
+                status,
+                started_at,
+                completed_at
             FROM user_starpath_progress
             WHERE user_id = $1 AND starpath_id = $2
             "#,
@@ -610,6 +570,67 @@ impl StarpathsService {
         .map_err(|e| AppError::Internal(e.to_string()))?;
 
         Ok(row.map(StarpathProgress::from))
+    }
+
+    async fn ensure_starpath_can_start(
+        &self,
+        user_id: Uuid,
+        starpath_id: Uuid,
+        is_admin: bool,
+    ) -> Result<(), AppError> {
+        let starpath = self
+            .get_starpath(starpath_id)
+            .await?
+            .ok_or_else(|| AppError::NotFound("Starpath not found".into()))?;
+
+        if starpath.content_status != "active" {
+            return Err(AppError::Forbidden(
+                "This starpath is archived and cannot be started".into(),
+            ));
+        }
+
+        if is_admin
+            || starpath.creator_id == user_id
+            || starpath.visibility == StarpathVisibility::Public
+        {
+            return Ok(());
+        }
+
+        if self
+            .user_has_group_access_to_starpath(user_id, starpath_id)
+            .await?
+        {
+            return Ok(());
+        }
+
+        Err(AppError::Forbidden(
+            "You are not allowed to start this private starpath".into(),
+        ))
+    }
+
+    async fn user_has_group_access_to_starpath(
+        &self,
+        user_id: Uuid,
+        starpath_id: Uuid,
+    ) -> Result<bool, AppError> {
+        let base = self.groups_ms_base.trim_end_matches('/');
+        let url =
+            format!("{base}/internal/access/starpath?user_id={user_id}&starpath_id={starpath_id}");
+
+        let body = self
+            .http
+            .get(url)
+            .send()
+            .await
+            .map_err(|_| AppError::Internal("Groups MS unreachable".into()))?
+            .json::<serde_json::Value>()
+            .await
+            .map_err(|_| AppError::Internal("Invalid Groups response".into()))?;
+
+        Ok(body
+            .get("data")
+            .and_then(|value| value.as_bool())
+            .unwrap_or(false))
     }
 
     pub async fn list_starpath_progress_for_user(
