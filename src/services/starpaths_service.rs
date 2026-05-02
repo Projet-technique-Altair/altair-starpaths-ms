@@ -24,7 +24,7 @@
  *
  * @packageDocumentation
  */
-use reqwest::Client;
+use reqwest::{Client, Url};
 use sqlx::PgPool;
 use uuid::Uuid;
 
@@ -40,19 +40,43 @@ use crate::{
 pub struct StarpathsService {
     db: PgPool,
     http: Client,
-    groups_ms_base: String,
+    groups_ms_base: Url,
 }
 
 impl StarpathsService {
     pub fn new(db: PgPool) -> Self {
-        let groups_ms_base =
-            std::env::var("GROUPS_MS_URL").unwrap_or_else(|_| "http://localhost:3006".to_string());
+        let groups_ms_base = Self::load_groups_ms_base_url();
 
         Self {
             db,
             http: Client::new(),
             groups_ms_base,
         }
+    }
+
+    fn load_groups_ms_base_url() -> Url {
+        let raw = std::env::var("GROUPS_MS_URL")
+            .unwrap_or_else(|_| "http://localhost:3006".to_string());
+
+        let url = Url::parse(&raw).expect("GROUPS_MS_URL must be a valid absolute URL");
+
+        if !matches!(url.scheme(), "http" | "https") {
+            panic!("GROUPS_MS_URL must use http or https");
+        }
+
+        if url.host_str().is_none() {
+            panic!("GROUPS_MS_URL must contain a host");
+        }
+
+        if !url.username().is_empty() || url.password().is_some() {
+            panic!("GROUPS_MS_URL must not contain credentials");
+        }
+
+        if url.query().is_some() || url.fragment().is_some() {
+            panic!("GROUPS_MS_URL must not contain query parameters or fragments");
+        }
+
+        url
     }
 
     // =========================
@@ -613,13 +637,18 @@ impl StarpathsService {
         user_id: Uuid,
         starpath_id: Uuid,
     ) -> Result<bool, AppError> {
-        let base = self.groups_ms_base.trim_end_matches('/');
-        let url =
-            format!("{base}/internal/access/starpath?user_id={user_id}&starpath_id={starpath_id}");
+        let endpoint = self
+            .groups_ms_base
+            .join("/internal/access/starpath")
+            .map_err(|_| AppError::Internal("Invalid Groups MS endpoint".into()))?;
 
         let body = self
             .http
-            .get(url)
+            .get(endpoint)
+            .query(&[
+                ("user_id", user_id.to_string()),
+                ("starpath_id", starpath_id.to_string()),
+            ])
             .send()
             .await
             .map_err(|_| AppError::Internal("Groups MS unreachable".into()))?
