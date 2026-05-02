@@ -1,3 +1,26 @@
+/**
+ * @file state — shared application state.
+ *
+ * @remarks
+ * Defines the global state for the Starpaths service.
+ *
+ *  - Holds initialized services (`StarpathsService`)
+ *  - Manages database connection pool (`PgPool`)
+ *
+ * Initialization:
+ *
+ *  - Reads `DATABASE_URL` from environment
+ *  - Establishes PostgreSQL connection
+ *  - Instantiates service layer
+ *
+ * Key characteristics:
+ *
+ *  - Shared via Axum `State`
+ *  - Cloneable for concurrent requests
+ *  - Centralized dependency management
+ *
+ * @packageDocumentation
+ */
 use crate::services::starpaths_service::StarpathsService;
 use sqlx::PgPool;
 

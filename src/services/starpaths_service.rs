@@ -1,10 +1,37 @@
+/**
+ * @file starpaths_service — business logic for starpath management.
+ *
+ * @remarks
+ * Handles all core operations related to Starpaths:
+ *
+ *  - Starpath lifecycle (create, read, update, delete)
+ *  - Lab composition and ordering within starpaths
+ *  - Search and filtering (public + owned)
+ *  - User progression tracking
+ *
+ * Acts as the bridge between:
+ *
+ *  - Database (PostgreSQL via SQLx)
+ *  - HTTP handlers (routes layer)
+ *
+ * Key characteristics:
+ *
+ *  - Direct SQL queries (no ORM)
+ *  - Visibility rules (public vs private)
+ *  - Idempotent progression start
+ *  - Ordered labs via `position`
+ *  - Explicit error handling with `AppError`
+ *
+ * @packageDocumentation
+ */
+use reqwest::{Client, Url};
 use sqlx::PgPool;
 use uuid::Uuid;
 
 use crate::{
     error::AppError,
-    models::starpath::{Starpath, StarpathRow},
-    models::starpath_input::{AddStarpathLabInput, CreateStarpathInput, UpdateStarpathInput},
+    models::starpath::{Starpath, StarpathRow, StarpathVisibility},
+    models::starpath_input::{AddStarpathLabInput, UpdateStarpathInput},
     models::starpath_lab::{StarpathLab, StarpathLabRow},
     models::starpath_progress::{StarpathProgress, StarpathProgressRow},
 };
@@ -12,11 +39,44 @@ use crate::{
 #[derive(Clone)]
 pub struct StarpathsService {
     db: PgPool,
+    http: Client,
+    groups_ms_base: Url,
 }
 
 impl StarpathsService {
     pub fn new(db: PgPool) -> Self {
-        Self { db }
+        let groups_ms_base = Self::load_groups_ms_base_url();
+
+        Self {
+            db,
+            http: Client::new(),
+            groups_ms_base,
+        }
+    }
+
+    fn load_groups_ms_base_url() -> Url {
+        let raw = std::env::var("GROUPS_MS_URL")
+            .unwrap_or_else(|_| "http://localhost:3006".to_string());
+
+        let url = Url::parse(&raw).expect("GROUPS_MS_URL must be a valid absolute URL");
+
+        if !matches!(url.scheme(), "http" | "https") {
+            panic!("GROUPS_MS_URL must use http or https");
+        }
+
+        if url.host_str().is_none() {
+            panic!("GROUPS_MS_URL must contain a host");
+        }
+
+        if !url.username().is_empty() || url.password().is_some() {
+            panic!("GROUPS_MS_URL must not contain credentials");
+        }
+
+        if url.query().is_some() || url.fragment().is_some() {
+            panic!("GROUPS_MS_URL must not contain query parameters or fragments");
+        }
+
+        url
     }
 
     // =========================
@@ -25,8 +85,18 @@ impl StarpathsService {
     pub async fn list_starpaths(&self) -> Result<Vec<Starpath>, AppError> {
         let rows = sqlx::query_as::<_, StarpathRow>(
             r#"
-            SELECT *
+            SELECT
+            starpath_id,
+            creator_id,
+            name,
+            description,
+            difficulty,
+            visibility,
+            content_status,
+            created_at
             FROM starpaths
+            WHERE visibility = 'public'
+              AND content_status = 'active'
             ORDER BY created_at DESC
             "#,
         )
@@ -34,32 +104,27 @@ impl StarpathsService {
         .await
         .map_err(|e| AppError::Internal(e.to_string()))?;
 
-        Ok(rows.into_iter().map(Starpath::from).collect())
+        rows.into_iter().map(Starpath::try_from).collect()
     }
 
-    // =========================
-    // GET /starpaths/:id
-    // =========================
-    pub async fn get_starpath(&self, starpath_id: Uuid) -> Result<Option<Starpath>, AppError> {
-        let row = sqlx::query_as::<_, StarpathRow>(
-            r#"
-            SELECT *
-            FROM starpaths
-            WHERE starpath_id = $1
-            "#,
-        )
-        .bind(starpath_id)
-        .fetch_optional(&self.db)
-        .await
-        .map_err(|e| AppError::Internal(e.to_string()))?;
-
-        Ok(row.map(Starpath::from))
-    }
-
-    // ==========================
-    // GET /mystarpaths (creator's starpaths only)
-    // ==========================
-    pub async fn my_starpaths(&self, creator_id: Uuid) -> Result<Vec<Starpath>, AppError> {
+    pub async fn list_starpaths_admin(
+        &self,
+        query: Option<String>,
+        visibility: Option<String>,
+        content_status: Option<String>,
+        limit: i64,
+        offset: i64,
+    ) -> Result<(Vec<Starpath>, i64), AppError> {
+        let query_pattern = query
+            .map(|value| value.trim().to_string())
+            .filter(|value| !value.is_empty())
+            .map(|value| format!("%{}%", value));
+        let visibility_filter = visibility
+            .map(|value| value.trim().to_lowercase())
+            .filter(|value| !value.is_empty() && value != "all");
+        let status_filter = content_status
+            .map(|value| value.trim().to_lowercase())
+            .filter(|value| !value.is_empty() && value != "all");
 
         let rows = sqlx::query_as::<_, StarpathRow>(
             r#"
@@ -69,28 +134,113 @@ impl StarpathsService {
                 name,
                 description,
                 difficulty,
+                visibility,
+                content_status,
+                created_at
+            FROM starpaths
+            WHERE ($1::TEXT IS NULL OR visibility = $1)
+              AND ($2::TEXT IS NULL OR name ILIKE $2 OR description ILIKE $2)
+              AND ($3::TEXT IS NULL OR content_status = $3)
+            ORDER BY created_at DESC
+            LIMIT $4
+            OFFSET $5
+            "#,
+        )
+        .bind(visibility_filter.as_deref())
+        .bind(query_pattern.as_deref())
+        .bind(status_filter.as_deref())
+        .bind(limit)
+        .bind(offset)
+        .fetch_all(&self.db)
+        .await
+        .map_err(|e| AppError::Internal(e.to_string()))?;
+
+        let total = sqlx::query_scalar::<_, i64>(
+            r#"
+            SELECT COUNT(*)
+            FROM starpaths
+            WHERE ($1::TEXT IS NULL OR visibility = $1)
+              AND ($2::TEXT IS NULL OR name ILIKE $2 OR description ILIKE $2)
+              AND ($3::TEXT IS NULL OR content_status = $3)
+            "#,
+        )
+        .bind(visibility_filter.as_deref())
+        .bind(query_pattern.as_deref())
+        .bind(status_filter.as_deref())
+        .fetch_one(&self.db)
+        .await
+        .map_err(|e| AppError::Internal(e.to_string()))?;
+
+        rows.into_iter()
+            .map(Starpath::try_from)
+            .collect::<Result<Vec<_>, _>>()
+            .map(|items| (items, total))
+    }
+
+    // =========================
+    // GET /starpaths/:id
+    // =========================
+    pub async fn get_starpath(&self, starpath_id: Uuid) -> Result<Option<Starpath>, AppError> {
+        let row = sqlx::query_as::<_, StarpathRow>(
+            r#"
+            SELECT
+            starpath_id,
+            creator_id,
+            name,
+            description,
+            difficulty,
+            visibility,
+            content_status,
+            created_at
+            FROM starpaths
+            WHERE starpath_id = $1
+            "#,
+        )
+        .bind(starpath_id)
+        .fetch_optional(&self.db)
+        .await
+        .map_err(|e| AppError::Internal(e.to_string()))?;
+
+        row.map(Starpath::try_from).transpose()
+    }
+
+    // ==========================
+    // GET /mystarpaths (creator's starpaths only)
+    // ==========================
+    pub async fn my_starpaths(&self, creator_id: Uuid) -> Result<Vec<Starpath>, AppError> {
+        let rows = sqlx::query_as::<_, StarpathRow>(
+            r#"
+            SELECT
+                starpath_id,
+                creator_id,
+                name,
+                description,
+                difficulty,
+                visibility,
+                content_status,
                 created_at
             FROM starpaths
             WHERE creator_id = $1
+              AND content_status = 'active'
             ORDER BY created_at DESC
-            "#
+            "#,
         )
         .bind(creator_id)
         .fetch_all(&self.db)
         .await
         .map_err(|e| AppError::Internal(e.to_string()))?;
 
-        Ok(rows.into_iter().map(Starpath::from).collect())
+        rows.into_iter().map(Starpath::try_from).collect()
     }
 
     // ==========================
-    // SEARCH STARPATHS
+    // GET /starpaths/search?q=
     // ==========================
     pub async fn search_starpaths(
         &self,
         query: String,
+        caller_id: Uuid,
     ) -> Result<Vec<Starpath>, AppError> {
-
         let pattern = format!("%{}%", query);
 
         let rows = sqlx::query_as::<_, StarpathRow>(
@@ -101,23 +251,32 @@ impl StarpathsService {
                 name,
                 description,
                 difficulty,
+                visibility,
+                content_status,
                 created_at
             FROM starpaths
-            WHERE name ILIKE $1
+            WHERE 
+                name ILIKE $1
+                AND content_status = 'active'
+                AND (
+                    visibility = 'public'
+                    OR creator_id = $2
+                )
             ORDER BY name
             LIMIT 10
             "#,
         )
         .bind(pattern)
+        .bind(caller_id)
         .fetch_all(&self.db)
         .await
         .map_err(|e| AppError::Internal(e.to_string()))?;
 
-        Ok(rows.into_iter().map(|r| r.into()).collect())
+        rows.into_iter().map(Starpath::try_from).collect()
     }
 
     // =========================
-    // POST /starpaths
+    // POST /starpaths (creator only)
     // =========================
     pub async fn create_starpath(
         &self,
@@ -125,16 +284,28 @@ impl StarpathsService {
         name: String,
         description: Option<String>,
         difficulty: Option<String>,
-    ) -> Result<Starpath, AppError>{
+        visibility: Option<String>,
+    ) -> Result<Starpath, AppError> {
+        let visibility = visibility
+            .map(|v| {
+                if v.len() > 16 {
+                    return Err(AppError::BadRequest("visibility too long".into()));
+                }
+                Ok(v.to_lowercase())
+            })
+            .transpose()?
+            .unwrap_or("private".to_string());
+
         let row = sqlx::query_as::<_, StarpathRow>(
             r#"
             INSERT INTO starpaths (
                 creator_id,
                 name,
                 description,
-                difficulty
+                difficulty,
+                visibility
             )
-            VALUES ($1, $2, $3, $4)
+            VALUES ($1, $2, $3, $4, $5)
             RETURNING *
             "#,
         )
@@ -142,11 +313,12 @@ impl StarpathsService {
         .bind(name)
         .bind(description)
         .bind(difficulty)
+        .bind(visibility)
         .fetch_one(&self.db)
         .await
         .map_err(|e| AppError::Internal(e.to_string()))?;
 
-        Ok(Starpath::from(row))
+        Starpath::try_from(row)
     }
 
     // =========================
@@ -157,13 +329,24 @@ impl StarpathsService {
         starpath_id: Uuid,
         input: UpdateStarpathInput,
     ) -> Result<Option<Starpath>, AppError> {
+        let visibility = input
+            .visibility
+            .map(|v| {
+                if v.len() > 16 {
+                    return Err(AppError::BadRequest("visibility too long".into()));
+                }
+                Ok(v.to_lowercase())
+            })
+            .transpose()?;
+
         let row = sqlx::query_as::<_, StarpathRow>(
             r#"
             UPDATE starpaths
             SET
                 name = COALESCE($2, name),
                 description = COALESCE($3, description),
-                difficulty = COALESCE($4, difficulty)
+                difficulty = COALESCE($4, difficulty),
+                visibility = COALESCE($5, visibility)
             WHERE starpath_id = $1
             RETURNING *
             "#,
@@ -172,11 +355,40 @@ impl StarpathsService {
         .bind(input.name)
         .bind(input.description)
         .bind(input.difficulty)
+        .bind(visibility)
         .fetch_optional(&self.db)
         .await
         .map_err(|e| AppError::Internal(e.to_string()))?;
 
-        Ok(row.map(Starpath::from))
+        row.map(Starpath::try_from).transpose()
+    }
+
+    pub async fn update_starpath_content_status(
+        &self,
+        starpath_id: Uuid,
+        content_status: &str,
+    ) -> Result<Option<Starpath>, AppError> {
+        if !matches!(content_status, "active" | "archived") {
+            return Err(AppError::BadRequest(
+                "content_status must be active or archived".into(),
+            ));
+        }
+
+        let row = sqlx::query_as::<_, StarpathRow>(
+            r#"
+            UPDATE starpaths
+            SET content_status = $2
+            WHERE starpath_id = $1
+            RETURNING *
+            "#,
+        )
+        .bind(starpath_id)
+        .bind(content_status)
+        .fetch_optional(&self.db)
+        .await
+        .map_err(|e| AppError::Internal(e.to_string()))?;
+
+        row.map(Starpath::try_from).transpose()
     }
 
     // =========================
@@ -197,6 +409,9 @@ impl StarpathsService {
         Ok(result.rows_affected())
     }
 
+    // =========================
+    // GET /starpaths/{id}/labs
+    // =========================
     pub async fn get_starpath_labs(&self, starpath_id: Uuid) -> Result<Vec<StarpathLab>, AppError> {
         let rows = sqlx::query_as::<_, StarpathLabRow>(
             r#"
@@ -214,6 +429,9 @@ impl StarpathsService {
         Ok(rows.into_iter().map(StarpathLab::from).collect())
     }
 
+    // ======================================
+    // POST /starpaths/{id}/labs
+    // ======================================
     pub async fn add_lab_to_starpath(
         &self,
         starpath_id: Uuid,
@@ -235,6 +453,9 @@ impl StarpathsService {
         Ok(())
     }
 
+    // =========================================
+    // PUT /starpaths/{id}/labs/{lab_id}
+    // =========================================
     pub async fn update_starpath_lab_position(
         &self,
         starpath_id: Uuid,
@@ -262,6 +483,9 @@ impl StarpathsService {
         Ok(())
     }
 
+    // ==========================================
+    // DELETE /starpaths/{id}/labs/{lab_id}
+    // ==========================================
     pub async fn remove_lab_from_starpath(
         &self,
         starpath_id: Uuid,
@@ -286,15 +510,27 @@ impl StarpathsService {
         Ok(())
     }
 
+    // =========================
+    // POST /starpaths/:id/start
+    // =========================
     pub async fn start_starpath(
         &self,
         user_id: Uuid,
         starpath_id: Uuid,
+        is_admin: bool,
     ) -> Result<StarpathProgress, AppError> {
-        // 1️⃣ Vérifier si déjà commencé (idempotence)
+        self.ensure_starpath_can_start(user_id, starpath_id, is_admin)
+            .await?;
+
         if let Some(row) = sqlx::query_as::<_, StarpathProgressRow>(
             r#"
-            SELECT *
+            SELECT
+                user_id,
+                starpath_id,
+                current_position,
+                status,
+                started_at,
+                completed_at
             FROM user_starpath_progress
             WHERE user_id = $1 AND starpath_id = $2
             "#,
@@ -308,7 +544,6 @@ impl StarpathsService {
             return Ok(StarpathProgress::from(row));
         }
 
-        // 2️⃣ Créer progression
         let row = sqlx::query_as::<_, StarpathProgressRow>(
             r#"
             INSERT INTO user_starpath_progress (
@@ -330,9 +565,9 @@ impl StarpathsService {
         Ok(StarpathProgress::from(row))
     }
 
-    // =========================
-    // GET user starpath progress
-    // =========================
+    // =================================
+    // GET /starpaths/:id/progress
+    // =================================
     pub async fn get_starpath_progress(
         &self,
         user_id: Uuid,
@@ -359,5 +594,97 @@ impl StarpathsService {
         .map_err(|e| AppError::Internal(e.to_string()))?;
 
         Ok(row.map(StarpathProgress::from))
+    }
+
+    async fn ensure_starpath_can_start(
+        &self,
+        user_id: Uuid,
+        starpath_id: Uuid,
+        is_admin: bool,
+    ) -> Result<(), AppError> {
+        let starpath = self
+            .get_starpath(starpath_id)
+            .await?
+            .ok_or_else(|| AppError::NotFound("Starpath not found".into()))?;
+
+        if starpath.content_status != "active" {
+            return Err(AppError::Forbidden(
+                "This starpath is archived and cannot be started".into(),
+            ));
+        }
+
+        if is_admin
+            || starpath.creator_id == user_id
+            || starpath.visibility == StarpathVisibility::Public
+        {
+            return Ok(());
+        }
+
+        if self
+            .user_has_group_access_to_starpath(user_id, starpath_id)
+            .await?
+        {
+            return Ok(());
+        }
+
+        Err(AppError::Forbidden(
+            "You are not allowed to start this private starpath".into(),
+        ))
+    }
+
+    async fn user_has_group_access_to_starpath(
+        &self,
+        user_id: Uuid,
+        starpath_id: Uuid,
+    ) -> Result<bool, AppError> {
+        let endpoint = self
+            .groups_ms_base
+            .join("/internal/access/starpath")
+            .map_err(|_| AppError::Internal("Invalid Groups MS endpoint".into()))?;
+
+        let body = self
+            .http
+            .get(endpoint)
+            .query(&[
+                ("user_id", user_id.to_string()),
+                ("starpath_id", starpath_id.to_string()),
+            ])
+            .send()
+            .await
+            .map_err(|_| AppError::Internal("Groups MS unreachable".into()))?
+            .json::<serde_json::Value>()
+            .await
+            .map_err(|_| AppError::Internal("Invalid Groups response".into()))?;
+
+        Ok(body
+            .get("data")
+            .and_then(|value| value.as_bool())
+            .unwrap_or(false))
+    }
+
+    pub async fn list_starpath_progress_for_user(
+        &self,
+        user_id: Uuid,
+    ) -> Result<Vec<StarpathProgress>, AppError> {
+        let rows = sqlx::query_as::<_, StarpathProgressRow>(
+            r#"
+            SELECT
+                user_id,
+                starpath_id,
+                current_position,
+                status,
+                started_at,
+                completed_at
+            FROM user_starpath_progress
+            WHERE user_id = $1
+            ORDER BY started_at DESC
+            "#,
+        )
+        .bind(user_id)
+        .fetch_all(&self.db)
+        .await
+        .map_err(|e| AppError::Internal(e.to_string()))?;
+
+        Ok(rows.into_iter().map(StarpathProgress::from).collect())
     }
 }

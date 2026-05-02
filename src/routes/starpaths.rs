@@ -1,9 +1,3 @@
-use axum::{
-    extract::{Path, State, Query},
-    Json,
-};
-use uuid::Uuid;
-use axum::http::HeaderMap;
 use crate::{
     error::AppError,
     models::{
@@ -12,9 +6,43 @@ use crate::{
         starpath_input::{CreateStarpathInput, UpdateStarpathInput},
         starpath_progress::StarpathProgress,
     },
-    state::AppState,
     services::extractor::extract_caller,
+    state::AppState,
 };
+/**
+ * @file starpaths — HTTP routes for starpath management.
+ *
+ * @remarks
+ * Defines all REST endpoints related to Starpaths:
+ *
+ *  - Starpath lifecycle (list, create, update, delete)
+ *  - Search and filtering
+ *  - Lab composition and ordering
+ *  - User progression tracking
+ *
+ * Each handler:
+ *
+ *  - Extracts caller identity when needed (`extract_caller`)
+ *  - Applies RBAC rules (admin, owner)
+ *  - Delegates logic to `StarpathsService`
+ *  - Returns standardized responses (`ApiResponse`)
+ *
+ * Key characteristics:
+ *
+ *  - Public vs restricted endpoints (visibility + ownership)
+ *  - Centralized authorization checks
+ *  - Consistent error handling via `AppError`
+ *  - Authenticated progression endpoints for learners
+ *
+ * @packageDocumentation
+ */
+use axum::{
+    extract::{Path, Query, State},
+    http::HeaderMap,
+    Json,
+};
+use serde::{Deserialize, Serialize};
+use uuid::Uuid;
 
 // ======================================================
 // GET /starpaths (public)
@@ -25,6 +53,50 @@ pub async fn list_starpaths(
     let starpaths = state.starpaths_service.list_starpaths().await?;
 
     Ok(Json(ApiResponse::success(starpaths)))
+}
+
+pub async fn list_starpaths_admin(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Query(params): Query<AdminStarpathsQuery>,
+) -> Result<Json<ApiResponse<PaginatedStarpaths>>, AppError> {
+    let caller = extract_caller(&headers)?;
+    let is_admin = caller.roles.iter().any(|r| r == "admin");
+
+    if !is_admin {
+        return Err(AppError::Forbidden(
+            "Admin role is required to list all starpaths".into(),
+        ));
+    }
+
+    if let Some(ref visibility) = params.visibility {
+        let normalized = visibility.trim().to_lowercase();
+        if !matches!(normalized.as_str(), "all" | "public" | "private") {
+            return Err(AppError::BadRequest(
+                "visibility must be one of: all, public, private".into(),
+            ));
+        }
+    }
+
+    let limit = params.limit.unwrap_or(200).clamp(1, 500);
+    let offset = params.offset.unwrap_or(0).max(0);
+    let (items, total) = state
+        .starpaths_service
+        .list_starpaths_admin(
+            params.q,
+            params.visibility,
+            params.content_status,
+            limit,
+            offset,
+        )
+        .await?;
+
+    Ok(Json(ApiResponse::success(PaginatedStarpaths {
+        items,
+        total,
+        limit,
+        offset,
+    })))
 }
 
 // ======================================================
@@ -50,13 +122,9 @@ pub async fn my_starpaths(
     State(state): State<AppState>,
     headers: HeaderMap,
 ) -> Result<Json<ApiResponse<Vec<Starpath>>>, AppError> {
-
     let caller = extract_caller(&headers)?;
 
-    let starpaths = state
-        .starpaths_service
-        .my_starpaths(caller.user_id)
-        .await?;
+    let starpaths = state.starpaths_service.my_starpaths(caller.user_id).await?;
 
     Ok(Json(ApiResponse::success(starpaths)))
 }
@@ -66,12 +134,14 @@ pub async fn my_starpaths(
 // ==========================
 pub async fn search_starpaths(
     State(state): State<AppState>,
+    headers: HeaderMap,
     Query(params): Query<SearchStarpathsQuery>,
 ) -> Result<Json<ApiResponse<Vec<Starpath>>>, AppError> {
+    let caller = extract_caller(&headers)?;
 
     let starpaths = state
         .starpaths_service
-        .search_starpaths(params.q)
+        .search_starpaths(params.q, caller.user_id)
         .await?;
 
     Ok(Json(ApiResponse::success(starpaths)))
@@ -85,7 +155,6 @@ pub async fn create_starpath(
     headers: HeaderMap,
     Json(input): Json<CreateStarpathInput>,
 ) -> Result<Json<ApiResponse<Starpath>>, AppError> {
-
     let caller = extract_caller(&headers)?;
 
     let starpath = state
@@ -95,6 +164,7 @@ pub async fn create_starpath(
             input.name,
             input.description,
             input.difficulty,
+            input.visibility,
         )
         .await?;
 
@@ -110,10 +180,13 @@ pub async fn update_starpath(
     headers: HeaderMap,
     Json(input): Json<UpdateStarpathInput>,
 ) -> Result<Json<ApiResponse<Starpath>>, AppError> {
-
     let caller = extract_caller(&headers)?;
 
-    let existing_starpath = state.starpaths_service.get_starpath(starpath_id).await?.ok_or_else(|| AppError::NotFound("Starpath not found".into()))?;
+    let existing_starpath = state
+        .starpaths_service
+        .get_starpath(starpath_id)
+        .await?
+        .ok_or_else(|| AppError::NotFound("Starpath not found".into()))?;
 
     let is_admin = caller.roles.iter().any(|r| r == "admin");
     let is_owner = caller.user_id == existing_starpath.creator_id;
@@ -141,10 +214,13 @@ pub async fn delete_starpath(
     headers: HeaderMap,
     Path(starpath_id): Path<Uuid>,
 ) -> Result<Json<ApiResponse<()>>, AppError> {
-
     let caller = extract_caller(&headers)?;
 
-    let existing_starpath = state.starpaths_service.get_starpath(starpath_id).await?.ok_or_else(|| AppError::NotFound("Starpath not found".into()))?;
+    let existing_starpath = state
+        .starpaths_service
+        .get_starpath(starpath_id)
+        .await?
+        .ok_or_else(|| AppError::NotFound("Starpath not found".into()))?;
 
     let is_admin = caller.roles.iter().any(|r| r == "admin");
     let is_owner = caller.user_id == existing_starpath.creator_id;
@@ -182,7 +258,6 @@ pub async fn get_starpath_labs(
     Ok(Json(ApiResponse::success(labs)))
 }
 
-
 // ======================================================
 // POST /starpaths/{id}/labs (public – MVP)
 // ======================================================
@@ -192,10 +267,13 @@ pub async fn add_starpath_lab(
     Path(starpath_id): Path<Uuid>,
     Json(input): Json<AddStarpathLabInput>,
 ) -> Result<Json<ApiResponse<()>>, AppError> {
-
     let caller = extract_caller(&headers)?;
 
-    let existing_starpath = state.starpaths_service.get_starpath(starpath_id).await?.ok_or_else(|| AppError::NotFound("Starpath not found".into()))?;
+    let existing_starpath = state
+        .starpaths_service
+        .get_starpath(starpath_id)
+        .await?
+        .ok_or_else(|| AppError::NotFound("Starpath not found".into()))?;
 
     let is_admin = caller.roles.iter().any(|r| r == "admin");
     let is_owner = caller.user_id == existing_starpath.creator_id;
@@ -214,7 +292,6 @@ pub async fn add_starpath_lab(
     Ok(Json(ApiResponse::success(())))
 }
 
-
 // ======================================================
 // PUT /starpaths/{id}/labs/{lab_id} (public – MVP)
 // ======================================================
@@ -224,10 +301,13 @@ pub async fn update_starpath_lab(
     Path((starpath_id, lab_id)): Path<(Uuid, Uuid)>,
     Json(input): Json<UpdateStarpathLabInput>,
 ) -> Result<Json<ApiResponse<()>>, AppError> {
-
     let caller = extract_caller(&headers)?;
 
-    let existing_starpath = state.starpaths_service.get_starpath(starpath_id).await?.ok_or_else(|| AppError::NotFound("Starpath not found".into()))?;
+    let existing_starpath = state
+        .starpaths_service
+        .get_starpath(starpath_id)
+        .await?
+        .ok_or_else(|| AppError::NotFound("Starpath not found".into()))?;
 
     let is_admin = caller.roles.iter().any(|r| r == "admin");
     let is_owner = caller.user_id == existing_starpath.creator_id;
@@ -246,7 +326,6 @@ pub async fn update_starpath_lab(
     Ok(Json(ApiResponse::success(())))
 }
 
-
 // ======================================================
 // DELETE /starpaths/{id}/labs/{lab_id} (public – MVP)
 // ======================================================
@@ -255,10 +334,13 @@ pub async fn delete_starpath_lab(
     headers: HeaderMap,
     Path((starpath_id, lab_id)): Path<(Uuid, Uuid)>,
 ) -> Result<Json<ApiResponse<()>>, AppError> {
-
     let caller = extract_caller(&headers)?;
 
-    let existing_starpath = state.starpaths_service.get_starpath(starpath_id).await?.ok_or_else(|| AppError::NotFound("Starpath not found".into()))?;
+    let existing_starpath = state
+        .starpaths_service
+        .get_starpath(starpath_id)
+        .await?
+        .ok_or_else(|| AppError::NotFound("Starpath not found".into()))?;
 
     let is_admin = caller.roles.iter().any(|r| r == "admin");
     let is_owner = caller.user_id == existing_starpath.creator_id;
@@ -278,34 +360,107 @@ pub async fn delete_starpath_lab(
 }
 
 // ======================================================
-// POST /starpaths/:id/start (MVP sans auth)
+// POST /starpaths/:id/start
 // ======================================================
 pub async fn start_starpath(
     State(state): State<AppState>,
+    headers: HeaderMap,
     Path(starpath_id): Path<Uuid>,
-    Json(user_id): Json<Uuid>, // MVP TEMPORAIRE
 ) -> Result<Json<ApiResponse<StarpathProgress>>, AppError> {
+    let caller = extract_caller(&headers)?;
+    let is_admin = caller.roles.iter().any(|r| r == "admin");
+
     let progress = state
         .starpaths_service
-        .start_starpath(user_id, starpath_id)
+        .start_starpath(caller.user_id, starpath_id, is_admin)
         .await?;
 
     Ok(Json(ApiResponse::success(progress)))
 }
 
 // ======================================================
-// GET /starpaths/:id/progress (MVP sans auth)
+// GET /starpaths/:id/progress
 // ======================================================
 pub async fn get_starpath_progress(
     State(state): State<AppState>,
+    headers: HeaderMap,
     Path(starpath_id): Path<Uuid>,
-    Json(user_id): Json<Uuid>, // MVP TEMPORAIRE
 ) -> Result<Json<ApiResponse<StarpathProgress>>, AppError> {
+    let caller = extract_caller(&headers)?;
+
     let progress = state
         .starpaths_service
-        .get_starpath_progress(user_id, starpath_id)
+        .get_starpath_progress(caller.user_id, starpath_id)
         .await?
         .ok_or_else(|| AppError::NotFound("Progress not found".into()))?;
 
     Ok(Json(ApiResponse::success(progress)))
+}
+
+pub async fn list_admin_user_starpath_progress(
+    State(state): State<AppState>,
+    headers: axum::http::HeaderMap,
+    Path(user_id): Path<Uuid>,
+) -> Result<Json<ApiResponse<Vec<StarpathProgress>>>, AppError> {
+    let caller = crate::services::extractor::extract_caller(&headers)?;
+    let is_admin = caller.roles.iter().any(|r| r == "admin");
+
+    if !is_admin {
+        return Err(AppError::Forbidden(
+            "Admin role is required to inspect starpath progress".into(),
+        ));
+    }
+
+    let progress = state
+        .starpaths_service
+        .list_starpath_progress_for_user(user_id)
+        .await?;
+
+    Ok(Json(ApiResponse::success(progress)))
+}
+
+pub async fn update_starpath_content_status_admin(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path(starpath_id): Path<Uuid>,
+    Json(payload): Json<UpdateContentStatusPayload>,
+) -> Result<Json<ApiResponse<Starpath>>, AppError> {
+    let caller = extract_caller(&headers)?;
+    let is_admin = caller.roles.iter().any(|r| r == "admin");
+
+    if !is_admin {
+        return Err(AppError::Forbidden(
+            "Admin role is required to update starpath lifecycle".into(),
+        ));
+    }
+
+    let starpath = state
+        .starpaths_service
+        .update_starpath_content_status(starpath_id, payload.content_status.trim())
+        .await?
+        .ok_or_else(|| AppError::NotFound("Starpath not found".into()))?;
+
+    Ok(Json(ApiResponse::success(starpath)))
+}
+
+#[derive(Deserialize)]
+pub struct AdminStarpathsQuery {
+    pub q: Option<String>,
+    pub visibility: Option<String>,
+    pub content_status: Option<String>,
+    pub limit: Option<i64>,
+    pub offset: Option<i64>,
+}
+
+#[derive(Deserialize)]
+pub struct UpdateContentStatusPayload {
+    pub content_status: String,
+}
+
+#[derive(Serialize)]
+pub struct PaginatedStarpaths {
+    pub items: Vec<Starpath>,
+    pub total: i64,
+    pub limit: i64,
+    pub offset: i64,
 }

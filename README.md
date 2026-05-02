@@ -719,3 +719,10 @@ This microservice is **functional for MVP deployment** with core Starpath manage
 ## License
 
 Internal Altaïr Platform Service – Not licensed for external use.
+## May 2026 Security And Platform Updates
+
+- Runtime Docker image now installs only required packages with `--no-install-recommends` and runs as non-root UID `10001`.
+- CORS origin handling is now allowlist-based through `ALLOWED_ORIGINS`; local defaults are `http://localhost:5173,http://localhost:3000`.
+- `.env` is for local development only and `.env.example` documents non-secret placeholders. Do not commit production database URLs or credentials.
+- Private starpath access continues to be delegated to groups access checks; keep `GROUPS_MS_URL` environment-specific.
+- Latest Trivy scan status for this repo: no HIGH or CRITICAL findings.

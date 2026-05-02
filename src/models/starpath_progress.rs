@@ -1,3 +1,23 @@
+/**
+ * @file starpath_progress — user progression tracking models.
+ *
+ * @remarks
+ * Defines how a user's progress within a starpath is stored and exposed:
+ *
+ *  - Database model (`StarpathProgressRow`)
+ *  - API model (`StarpathProgress`)
+ *
+ * Tracks progression state including position, status, and timestamps.
+ *
+ * Key characteristics:
+ *
+ *  - Maintains user progression within ordered starpaths
+ *  - Supports lifecycle states via `status`
+ *  - Includes start and completion timestamps
+ *  - Simple conversion using `From`
+ *
+ * @packageDocumentation
+ */
 use serde::{Deserialize, Serialize};
 use sqlx::FromRow;
 use uuid::Uuid;

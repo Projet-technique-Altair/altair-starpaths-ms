@@ -1,3 +1,25 @@
+/**
+ * @file api — standard API models and query structures.
+ *
+ * @remarks
+ * Defines the unified response format used across the Starpaths service:
+ *
+ *  - Success responses (`ApiResponse<T>`)
+ *  - Error responses (`ApiErrorResponse`)
+ *  - Metadata (`ApiMeta`)
+ *
+ * Also includes query structures for specific endpoints:
+ *
+ *  - `SearchStarpathsQuery` for search functionality
+ *
+ * Key characteristics:
+ *
+ *  - Consistent API structure (success, data, meta)
+ *  - Structured error handling (code, message, details)
+ *  - Automatic metadata generation (request_id, timestamp)
+ *
+ * @packageDocumentation
+ */
 use serde::Serialize;
 
 #[derive(Serialize)]
@@ -45,7 +67,6 @@ impl<T> ApiResponse<T> {
         }
     }
 }
-
 
 use serde::Deserialize;
 
