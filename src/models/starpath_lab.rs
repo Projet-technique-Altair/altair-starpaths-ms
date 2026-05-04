@@ -27,12 +27,14 @@ pub struct StarpathLabRow {
     #[allow(dead_code)]
     pub starpath_id: Uuid,
     pub lab_id: Uuid,
+    pub chapter_id: Option<Uuid>,
     pub position: i32,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct StarpathLab {
     pub lab_id: Uuid,
+    pub chapter_id: Option<Uuid>,
     pub position: i32,
 }
 
@@ -40,6 +42,7 @@ impl From<StarpathLabRow> for StarpathLab {
     fn from(row: StarpathLabRow) -> Self {
         Self {
             lab_id: row.lab_id,
+            chapter_id: row.chapter_id,
             position: row.position,
         }
     }

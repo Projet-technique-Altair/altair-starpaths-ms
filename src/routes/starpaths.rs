@@ -3,7 +3,10 @@ use crate::{
     models::{
         api::{ApiResponse, SearchStarpathsQuery},
         starpath::Starpath,
-        starpath_input::{CreateStarpathInput, UpdateStarpathInput},
+        starpath_input::{
+            CreateStarpathChapterInput, CreateStarpathInput, UpdateStarpathChapterInput,
+            UpdateStarpathInput,
+        },
         starpath_progress::StarpathProgress,
     },
     services::extractor::extract_caller,
@@ -240,6 +243,7 @@ pub async fn delete_starpath(
     Ok(Json(ApiResponse::success(())))
 }
 
+use crate::models::starpath_chapter::StarpathChapter;
 use crate::models::starpath_input::{AddStarpathLabInput, UpdateStarpathLabInput};
 use crate::models::starpath_lab::StarpathLab;
 
@@ -256,6 +260,123 @@ pub async fn get_starpath_labs(
         .await?;
 
     Ok(Json(ApiResponse::success(labs)))
+}
+
+// ======================================================
+// GET /starpaths/{id}/chapters
+// ======================================================
+pub async fn get_starpath_chapters(
+    State(state): State<AppState>,
+    Path(starpath_id): Path<Uuid>,
+) -> Result<Json<ApiResponse<Vec<StarpathChapter>>>, AppError> {
+    let chapters = state
+        .starpaths_service
+        .get_starpath_chapters(starpath_id)
+        .await?;
+
+    Ok(Json(ApiResponse::success(chapters)))
+}
+
+// ======================================================
+// POST /starpaths/{id}/chapters
+// ======================================================
+pub async fn create_starpath_chapter(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path(starpath_id): Path<Uuid>,
+    Json(input): Json<CreateStarpathChapterInput>,
+) -> Result<Json<ApiResponse<StarpathChapter>>, AppError> {
+    let caller = extract_caller(&headers)?;
+
+    let existing_starpath = state
+        .starpaths_service
+        .get_starpath(starpath_id)
+        .await?
+        .ok_or_else(|| AppError::NotFound("Starpath not found".into()))?;
+
+    let is_admin = caller.roles.iter().any(|r| r == "admin");
+    let is_owner = caller.user_id == existing_starpath.creator_id;
+
+    if !is_admin && !is_owner {
+        return Err(AppError::Forbidden(
+            "You are not allowed to add chapters to this starpath.".into(),
+        ));
+    }
+
+    let chapter = state
+        .starpaths_service
+        .create_starpath_chapter(starpath_id, input)
+        .await?;
+
+    Ok(Json(ApiResponse::success(chapter)))
+}
+
+// ======================================================
+// PUT /starpaths/{id}/chapters/{chapter_id}
+// ======================================================
+pub async fn update_starpath_chapter(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path((starpath_id, chapter_id)): Path<(Uuid, Uuid)>,
+    Json(input): Json<UpdateStarpathChapterInput>,
+) -> Result<Json<ApiResponse<StarpathChapter>>, AppError> {
+    let caller = extract_caller(&headers)?;
+
+    let existing_starpath = state
+        .starpaths_service
+        .get_starpath(starpath_id)
+        .await?
+        .ok_or_else(|| AppError::NotFound("Starpath not found".into()))?;
+
+    let is_admin = caller.roles.iter().any(|r| r == "admin");
+    let is_owner = caller.user_id == existing_starpath.creator_id;
+
+    if !is_admin && !is_owner {
+        return Err(AppError::Forbidden(
+            "You are not allowed to update chapters of this starpath.".into(),
+        ));
+    }
+
+    let chapter = state
+        .starpaths_service
+        .update_starpath_chapter(starpath_id, chapter_id, input)
+        .await?
+        .ok_or_else(|| AppError::NotFound("Chapter not found".into()))?;
+
+    Ok(Json(ApiResponse::success(chapter)))
+}
+
+// ======================================================
+// DELETE /starpaths/{id}/chapters/{chapter_id}
+// ======================================================
+pub async fn delete_starpath_chapter(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path((starpath_id, chapter_id)): Path<(Uuid, Uuid)>,
+) -> Result<Json<ApiResponse<()>>, AppError> {
+    let caller = extract_caller(&headers)?;
+
+    let existing_starpath = state
+        .starpaths_service
+        .get_starpath(starpath_id)
+        .await?
+        .ok_or_else(|| AppError::NotFound("Starpath not found".into()))?;
+
+    let is_admin = caller.roles.iter().any(|r| r == "admin");
+    let is_owner = caller.user_id == existing_starpath.creator_id;
+
+    if !is_admin && !is_owner {
+        return Err(AppError::Forbidden(
+            "You are not allowed to delete chapters of this starpath.".into(),
+        ));
+    }
+
+    state
+        .starpaths_service
+        .delete_starpath_chapter(starpath_id, chapter_id)
+        .await?;
+
+    Ok(Json(ApiResponse::success(())))
 }
 
 // ======================================================
@@ -320,7 +441,7 @@ pub async fn update_starpath_lab(
 
     state
         .starpaths_service
-        .update_starpath_lab_position(starpath_id, lab_id, input.position)
+        .update_starpath_lab_position(starpath_id, lab_id, input.position, input.chapter_id)
         .await?;
 
     Ok(Json(ApiResponse::success(())))

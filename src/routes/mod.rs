@@ -34,10 +34,11 @@ use crate::state::AppState;
 use crate::routes::{
     health::health,
     starpaths::{
-        add_starpath_lab, create_starpath, delete_starpath, delete_starpath_lab, get_starpath,
+        add_starpath_lab, create_starpath, create_starpath_chapter, delete_starpath,
+        delete_starpath_chapter, delete_starpath_lab, get_starpath, get_starpath_chapters,
         get_starpath_labs, list_admin_user_starpath_progress, list_starpaths, list_starpaths_admin,
-        my_starpaths, search_starpaths, update_starpath, update_starpath_content_status_admin,
-        update_starpath_lab,
+        my_starpaths, search_starpaths, update_starpath, update_starpath_chapter,
+        update_starpath_content_status_admin, update_starpath_lab,
     },
 };
 
@@ -71,6 +72,14 @@ pub fn init_routes() -> Router<AppState> {
         .route(
             "/starpaths/{id}/labs",
             get(get_starpath_labs).post(add_starpath_lab),
+        )
+        .route(
+            "/starpaths/{id}/chapters",
+            get(get_starpath_chapters).post(create_starpath_chapter),
+        )
+        .route(
+            "/starpaths/{id}/chapters/{chapter_id}",
+            put(update_starpath_chapter).delete(delete_starpath_chapter),
         )
         .route(
             "/starpaths/{id}/labs/{lab_id}",

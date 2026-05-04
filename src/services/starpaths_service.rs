@@ -31,7 +31,11 @@ use uuid::Uuid;
 use crate::{
     error::AppError,
     models::starpath::{Starpath, StarpathRow, StarpathVisibility},
-    models::starpath_input::{AddStarpathLabInput, UpdateStarpathInput},
+    models::starpath_chapter::{StarpathChapter, StarpathChapterRow},
+    models::starpath_input::{
+        AddStarpathLabInput, CreateStarpathChapterInput, UpdateStarpathChapterInput,
+        UpdateStarpathInput,
+    },
     models::starpath_lab::{StarpathLab, StarpathLabRow},
     models::starpath_progress::{StarpathProgress, StarpathProgressRow},
 };
@@ -55,8 +59,8 @@ impl StarpathsService {
     }
 
     fn load_groups_ms_base_url() -> Url {
-        let raw = std::env::var("GROUPS_MS_URL")
-            .unwrap_or_else(|_| "http://localhost:3006".to_string());
+        let raw =
+            std::env::var("GROUPS_MS_URL").unwrap_or_else(|_| "http://localhost:3006".to_string());
 
         let url = Url::parse(&raw).expect("GROUPS_MS_URL must be a valid absolute URL");
 
@@ -415,7 +419,7 @@ impl StarpathsService {
     pub async fn get_starpath_labs(&self, starpath_id: Uuid) -> Result<Vec<StarpathLab>, AppError> {
         let rows = sqlx::query_as::<_, StarpathLabRow>(
             r#"
-            SELECT starpath_id, lab_id, position
+            SELECT starpath_id, lab_id, chapter_id, position
             FROM starpath_labs
             WHERE starpath_id = $1
             ORDER BY position ASC
@@ -429,6 +433,118 @@ impl StarpathsService {
         Ok(rows.into_iter().map(StarpathLab::from).collect())
     }
 
+    pub async fn get_starpath_chapters(
+        &self,
+        starpath_id: Uuid,
+    ) -> Result<Vec<StarpathChapter>, AppError> {
+        let rows = sqlx::query_as::<_, StarpathChapterRow>(
+            r#"
+            SELECT chapter_id, starpath_id, name, position
+            FROM starpath_chapters
+            WHERE starpath_id = $1
+            ORDER BY position ASC
+            "#,
+        )
+        .bind(starpath_id)
+        .fetch_all(&self.db)
+        .await
+        .map_err(|e| AppError::Internal(e.to_string()))?;
+
+        Ok(rows.into_iter().map(StarpathChapter::from).collect())
+    }
+
+    pub async fn create_starpath_chapter(
+        &self,
+        starpath_id: Uuid,
+        input: CreateStarpathChapterInput,
+    ) -> Result<StarpathChapter, AppError> {
+        let name = input.name.trim();
+        if name.is_empty() {
+            return Err(AppError::BadRequest("Chapter name cannot be empty".into()));
+        }
+        if name.len() > 160 {
+            return Err(AppError::BadRequest("Chapter name too long".into()));
+        }
+
+        let row = sqlx::query_as::<_, StarpathChapterRow>(
+            r#"
+            INSERT INTO starpath_chapters (starpath_id, name, position)
+            VALUES ($1, $2, $3)
+            RETURNING chapter_id, starpath_id, name, position
+            "#,
+        )
+        .bind(starpath_id)
+        .bind(name)
+        .bind(input.position)
+        .fetch_one(&self.db)
+        .await
+        .map_err(|e| AppError::Conflict(e.to_string()))?;
+
+        Ok(StarpathChapter::from(row))
+    }
+
+    pub async fn update_starpath_chapter(
+        &self,
+        starpath_id: Uuid,
+        chapter_id: Uuid,
+        input: UpdateStarpathChapterInput,
+    ) -> Result<Option<StarpathChapter>, AppError> {
+        let name = input
+            .name
+            .map(|value| value.trim().to_string())
+            .filter(|value| !value.is_empty());
+
+        if let Some(ref name) = name {
+            if name.len() > 160 {
+                return Err(AppError::BadRequest("Chapter name too long".into()));
+            }
+        }
+
+        let row = sqlx::query_as::<_, StarpathChapterRow>(
+            r#"
+            UPDATE starpath_chapters
+            SET
+                name = COALESCE($3, name),
+                position = COALESCE($4, position)
+            WHERE starpath_id = $1 AND chapter_id = $2
+            RETURNING chapter_id, starpath_id, name, position
+            "#,
+        )
+        .bind(starpath_id)
+        .bind(chapter_id)
+        .bind(name)
+        .bind(input.position)
+        .fetch_optional(&self.db)
+        .await
+        .map_err(|e| AppError::Conflict(e.to_string()))?;
+
+        Ok(row.map(StarpathChapter::from))
+    }
+
+    pub async fn delete_starpath_chapter(
+        &self,
+        starpath_id: Uuid,
+        chapter_id: Uuid,
+    ) -> Result<(), AppError> {
+        let result = sqlx::query(
+            r#"
+            DELETE FROM starpath_chapters
+            WHERE starpath_id = $1 AND chapter_id = $2
+            "#,
+        )
+        .bind(starpath_id)
+        .bind(chapter_id)
+        .execute(&self.db)
+        .await
+        .map_err(|e| AppError::Internal(e.to_string()))?;
+
+        if result.rows_affected() == 0 {
+            return Err(AppError::NotFound("Chapter not found in starpath".into()));
+        }
+
+        Ok(())
+    }
+
     // ======================================
     // POST /starpaths/{id}/labs
     // ======================================
@@ -439,12 +555,13 @@ impl StarpathsService {
     ) -> Result<(), AppError> {
         sqlx::query(
             r#"
-            INSERT INTO starpath_labs (starpath_id, lab_id, position)
-            VALUES ($1, $2, $3)
+            INSERT INTO starpath_labs (starpath_id, lab_id, chapter_id, position)
+            VALUES ($1, $2, $3, $4)
             "#,
         )
         .bind(starpath_id)
         .bind(input.lab_id)
+        .bind(input.chapter_id)
         .bind(input.position)
         .execute(&self.db)
         .await
@@ -460,18 +577,26 @@ impl StarpathsService {
         &self,
         starpath_id: Uuid,
         lab_id: Uuid,
-        position: i32,
+        position: Option<i32>,
+        chapter_id: Option<Option<Uuid>>,
     ) -> Result<(), AppError> {
+        let update_chapter = chapter_id.is_some();
+        let chapter_id = chapter_id.flatten();
+
         let result = sqlx::query(
             r#"
             UPDATE starpath_labs
-            SET position = $3
+            SET
+                position = COALESCE($3, position),
+                chapter_id = CASE WHEN $4 THEN $5 ELSE chapter_id END
             WHERE starpath_id = $1 AND lab_id = $2
             "#,
         )
         .bind(starpath_id)
         .bind(lab_id)
         .bind(position)
+        .bind(update_chapter)
+        .bind(chapter_id)
         .execute(&self.db)
         .await
         .map_err(|e| AppError::Internal(e.to_string()))?;
