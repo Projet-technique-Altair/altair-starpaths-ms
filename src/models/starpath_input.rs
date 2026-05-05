@@ -39,9 +39,24 @@ pub struct UpdateStarpathInput {
 pub struct AddStarpathLabInput {
     pub lab_id: Uuid,
     pub position: i32,
+    pub chapter_id: Option<Uuid>,
 }
 
 #[derive(Debug, Deserialize)]
 pub struct UpdateStarpathLabInput {
+    pub position: Option<i32>,
+    #[serde(default)]
+    pub chapter_id: Option<Option<Uuid>>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct CreateStarpathChapterInput {
+    pub name: String,
     pub position: i32,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct UpdateStarpathChapterInput {
+    pub name: Option<String>,
+    pub position: Option<i32>,
 }
