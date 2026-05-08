@@ -33,6 +33,11 @@ use crate::state::AppState;
 
 use crate::routes::{
     health::health,
+    starpath_feedback::{
+        create_starpath_feedback, delete_starpath_feedback, delete_starpath_feedback_reply,
+        get_starpath_feedback_summary, get_starpath_feedbacks, set_starpath_feedback_vote,
+        update_starpath_feedback, upsert_starpath_feedback_reply,
+    },
     starpaths::{
         add_starpath_lab, create_starpath, create_starpath_chapter, delete_starpath,
         delete_starpath_chapter, delete_starpath_lab, get_starpath, get_starpath_chapters,
@@ -43,6 +48,7 @@ use crate::routes::{
 };
 
 pub mod health;
+pub mod starpath_feedback;
 pub mod starpaths;
 
 pub fn init_routes() -> Router<AppState> {
@@ -60,6 +66,26 @@ pub fn init_routes() -> Router<AppState> {
             get(list_admin_user_starpath_progress),
         )
         .route("/starpaths", get(list_starpaths).post(create_starpath))
+        .route(
+            "/starpaths/{id}/feedbacks",
+            get(get_starpath_feedbacks).post(create_starpath_feedback),
+        )
+        .route(
+            "/starpaths/{id}/feedback-summary",
+            get(get_starpath_feedback_summary),
+        )
+        .route(
+            "/starpaths/feedbacks/{feedback_id}",
+            put(update_starpath_feedback).delete(delete_starpath_feedback),
+        )
+        .route(
+            "/starpaths/feedbacks/{feedback_id}/vote",
+            put(set_starpath_feedback_vote),
+        )
+        .route(
+            "/starpaths/feedbacks/{feedback_id}/reply",
+            put(upsert_starpath_feedback_reply).delete(delete_starpath_feedback_reply),
+        )
         .route("/mystarpaths", get(my_starpaths))
         .route("/search", get(search_starpaths))
         .route(

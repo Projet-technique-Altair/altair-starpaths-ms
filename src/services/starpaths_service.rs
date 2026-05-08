@@ -90,18 +90,29 @@ impl StarpathsService {
         let rows = sqlx::query_as::<_, StarpathRow>(
             r#"
             SELECT
-            starpath_id,
-            creator_id,
-            name,
-            description,
-            difficulty,
-            visibility,
-            content_status,
-            created_at
-            FROM starpaths
-            WHERE visibility = 'public'
-              AND content_status = 'active'
-            ORDER BY created_at DESC
+                s.starpath_id,
+                s.creator_id,
+                s.name,
+                s.description,
+                s.difficulty,
+                s.visibility,
+                s.content_status,
+                rs.rating_average,
+                COALESCE(rs.rating_count, 0)::BIGINT AS rating_count,
+                s.created_at
+            FROM starpaths s
+            LEFT JOIN (
+                SELECT
+                    starpath_id,
+                    AVG(rating)::DOUBLE PRECISION AS rating_average,
+                    COUNT(feedback_id)::BIGINT AS rating_count
+                FROM starpath_feedbacks
+                WHERE deleted_at IS NULL
+                GROUP BY starpath_id
+            ) rs ON rs.starpath_id = s.starpath_id
+            WHERE s.visibility = 'public'
+              AND s.content_status = 'active'
+            ORDER BY s.created_at DESC
             "#,
         )
         .fetch_all(&self.db)
@@ -133,19 +144,30 @@ impl StarpathsService {
         let rows = sqlx::query_as::<_, StarpathRow>(
             r#"
             SELECT
-                starpath_id,
-                creator_id,
-                name,
-                description,
-                difficulty,
-                visibility,
-                content_status,
-                created_at
-            FROM starpaths
-            WHERE ($1::TEXT IS NULL OR visibility = $1)
-              AND ($2::TEXT IS NULL OR name ILIKE $2 OR description ILIKE $2)
-              AND ($3::TEXT IS NULL OR content_status = $3)
-            ORDER BY created_at DESC
+                s.starpath_id,
+                s.creator_id,
+                s.name,
+                s.description,
+                s.difficulty,
+                s.visibility,
+                s.content_status,
+                rs.rating_average,
+                COALESCE(rs.rating_count, 0)::BIGINT AS rating_count,
+                s.created_at
+            FROM starpaths s
+            LEFT JOIN (
+                SELECT
+                    starpath_id,
+                    AVG(rating)::DOUBLE PRECISION AS rating_average,
+                    COUNT(feedback_id)::BIGINT AS rating_count
+                FROM starpath_feedbacks
+                WHERE deleted_at IS NULL
+                GROUP BY starpath_id
+            ) rs ON rs.starpath_id = s.starpath_id
+            WHERE ($1::TEXT IS NULL OR s.visibility = $1)
+              AND ($2::TEXT IS NULL OR s.name ILIKE $2 OR s.description ILIKE $2)
+              AND ($3::TEXT IS NULL OR s.content_status = $3)
+            ORDER BY s.created_at DESC
             LIMIT $4
             OFFSET $5
             "#,
@@ -188,16 +210,27 @@ impl StarpathsService {
         let row = sqlx::query_as::<_, StarpathRow>(
             r#"
             SELECT
-            starpath_id,
-            creator_id,
-            name,
-            description,
-            difficulty,
-            visibility,
-            content_status,
-            created_at
-            FROM starpaths
-            WHERE starpath_id = $1
+                s.starpath_id,
+                s.creator_id,
+                s.name,
+                s.description,
+                s.difficulty,
+                s.visibility,
+                s.content_status,
+                rs.rating_average,
+                COALESCE(rs.rating_count, 0)::BIGINT AS rating_count,
+                s.created_at
+            FROM starpaths s
+            LEFT JOIN (
+                SELECT
+                    starpath_id,
+                    AVG(rating)::DOUBLE PRECISION AS rating_average,
+                    COUNT(feedback_id)::BIGINT AS rating_count
+                FROM starpath_feedbacks
+                WHERE deleted_at IS NULL
+                GROUP BY starpath_id
+            ) rs ON rs.starpath_id = s.starpath_id
+            WHERE s.starpath_id = $1
             "#,
         )
         .bind(starpath_id)
@@ -215,18 +248,29 @@ impl StarpathsService {
         let rows = sqlx::query_as::<_, StarpathRow>(
             r#"
             SELECT
-                starpath_id,
-                creator_id,
-                name,
-                description,
-                difficulty,
-                visibility,
-                content_status,
-                created_at
-            FROM starpaths
-            WHERE creator_id = $1
-              AND content_status = 'active'
-            ORDER BY created_at DESC
+                s.starpath_id,
+                s.creator_id,
+                s.name,
+                s.description,
+                s.difficulty,
+                s.visibility,
+                s.content_status,
+                rs.rating_average,
+                COALESCE(rs.rating_count, 0)::BIGINT AS rating_count,
+                s.created_at
+            FROM starpaths s
+            LEFT JOIN (
+                SELECT
+                    starpath_id,
+                    AVG(rating)::DOUBLE PRECISION AS rating_average,
+                    COUNT(feedback_id)::BIGINT AS rating_count
+                FROM starpath_feedbacks
+                WHERE deleted_at IS NULL
+                GROUP BY starpath_id
+            ) rs ON rs.starpath_id = s.starpath_id
+            WHERE s.creator_id = $1
+              AND s.content_status = 'active'
+            ORDER BY s.created_at DESC
             "#,
         )
         .bind(creator_id)
@@ -250,23 +294,34 @@ impl StarpathsService {
         let rows = sqlx::query_as::<_, StarpathRow>(
             r#"
             SELECT
-                starpath_id,
-                creator_id,
-                name,
-                description,
-                difficulty,
-                visibility,
-                content_status,
-                created_at
-            FROM starpaths
+                s.starpath_id,
+                s.creator_id,
+                s.name,
+                s.description,
+                s.difficulty,
+                s.visibility,
+                s.content_status,
+                rs.rating_average,
+                COALESCE(rs.rating_count, 0)::BIGINT AS rating_count,
+                s.created_at
+            FROM starpaths s
+            LEFT JOIN (
+                SELECT
+                    starpath_id,
+                    AVG(rating)::DOUBLE PRECISION AS rating_average,
+                    COUNT(feedback_id)::BIGINT AS rating_count
+                FROM starpath_feedbacks
+                WHERE deleted_at IS NULL
+                GROUP BY starpath_id
+            ) rs ON rs.starpath_id = s.starpath_id
             WHERE 
-                name ILIKE $1
-                AND content_status = 'active'
+                s.name ILIKE $1
+                AND s.content_status = 'active'
                 AND (
-                    visibility = 'public'
-                    OR creator_id = $2
+                    s.visibility = 'public'
+                    OR s.creator_id = $2
                 )
-            ORDER BY name
+            ORDER BY s.name
             LIMIT 10
             "#,
         )
@@ -300,7 +355,7 @@ impl StarpathsService {
             .transpose()?
             .unwrap_or("private".to_string());
 
-        let row = sqlx::query_as::<_, StarpathRow>(
+        let row = sqlx::query_scalar::<_, Uuid>(
             r#"
             INSERT INTO starpaths (
                 creator_id,
@@ -310,7 +365,7 @@ impl StarpathsService {
                 visibility
             )
             VALUES ($1, $2, $3, $4, $5)
-            RETURNING *
+            RETURNING starpath_id
             "#,
         )
         .bind(creator_id)
@@ -322,7 +377,9 @@ impl StarpathsService {
         .await
         .map_err(|e| AppError::Internal(e.to_string()))?;
 
-        Starpath::try_from(row)
+        self.get_starpath(row)
+            .await?
+            .ok_or_else(|| AppError::Internal("Created starpath could not be reloaded".into()))
     }
 
     // =========================
@@ -343,7 +400,7 @@ impl StarpathsService {
             })
             .transpose()?;
 
-        let row = sqlx::query_as::<_, StarpathRow>(
+        let row = sqlx::query_scalar::<_, Uuid>(
             r#"
             UPDATE starpaths
             SET
@@ -352,7 +409,7 @@ impl StarpathsService {
                 difficulty = COALESCE($4, difficulty),
                 visibility = COALESCE($5, visibility)
             WHERE starpath_id = $1
-            RETURNING *
+            RETURNING starpath_id
             "#,
         )
         .bind(starpath_id)
@@ -364,7 +421,10 @@ impl StarpathsService {
         .await
         .map_err(|e| AppError::Internal(e.to_string()))?;
 
-        row.map(Starpath::try_from).transpose()
+        match row {
+            Some(starpath_id) => self.get_starpath(starpath_id).await,
+            None => Ok(None),
+        }
     }
 
     pub async fn update_starpath_content_status(
@@ -378,12 +438,12 @@ impl StarpathsService {
             ));
         }
 
-        let row = sqlx::query_as::<_, StarpathRow>(
+        let row = sqlx::query_scalar::<_, Uuid>(
             r#"
             UPDATE starpaths
             SET content_status = $2
             WHERE starpath_id = $1
-            RETURNING *
+            RETURNING starpath_id
             "#,
         )
         .bind(starpath_id)
@@ -392,7 +452,10 @@ impl StarpathsService {
         .await
         .map_err(|e| AppError::Internal(e.to_string()))?;
 
-        row.map(Starpath::try_from).transpose()
+        match row {
+            Some(starpath_id) => self.get_starpath(starpath_id).await,
+            None => Ok(None),
+        }
     }
 
     // =========================
@@ -719,6 +782,33 @@ impl StarpathsService {
         .map_err(|e| AppError::Internal(e.to_string()))?;
 
         Ok(row.map(StarpathProgress::from))
+    }
+
+    pub async fn ensure_starpath_access(
+        &self,
+        user_id: Uuid,
+        starpath_id: Uuid,
+        is_admin: bool,
+    ) -> Result<Starpath, AppError> {
+        let starpath = self
+            .get_starpath(starpath_id)
+            .await?
+            .ok_or_else(|| AppError::NotFound("Starpath not found".into()))?;
+
+        if is_admin || starpath.creator_id == user_id {
+            return Ok(starpath);
+        }
+
+        let public_active = starpath.visibility == StarpathVisibility::Public
+            && starpath.content_status.eq_ignore_ascii_case("active");
+
+        if public_active || self.user_has_group_access_to_starpath(user_id, starpath_id).await? {
+            return Ok(starpath);
+        }
+
+        Err(AppError::Forbidden(
+            "You are not allowed to access this starpath".into(),
+        ))
     }
 
     async fn ensure_starpath_can_start(

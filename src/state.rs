@@ -21,11 +21,14 @@
  *
  * @packageDocumentation
  */
-use crate::services::starpaths_service::StarpathsService;
+use crate::services::{
+    starpath_feedback_service::StarpathFeedbackService, starpaths_service::StarpathsService,
+};
 use sqlx::PgPool;
 
 #[derive(Clone)]
 pub struct AppState {
+    pub starpath_feedback_service: StarpathFeedbackService,
     pub starpaths_service: StarpathsService,
 }
 
@@ -37,7 +40,14 @@ impl AppState {
             .await
             .expect("Failed to connect to database");
 
+        let starpath_feedback_service = StarpathFeedbackService::new(db.clone());
+        starpath_feedback_service
+            .ensure_schema()
+            .await
+            .expect("Failed to initialize starpath feedback schema");
+
         Self {
+            starpath_feedback_service,
             starpaths_service: StarpathsService::new(db),
         }
     }
