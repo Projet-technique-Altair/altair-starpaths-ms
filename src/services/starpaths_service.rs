@@ -27,10 +27,16 @@
 use reqwest::{Client, Url};
 use sqlx::PgPool;
 use uuid::Uuid;
+use chrono::{Duration, NaiveDateTime, Utc};
+use serde::Deserialize;
 
 use crate::{
     error::AppError,
     models::starpath::{Starpath, StarpathRow, StarpathVisibility},
+    models::starpath_analytics::{
+        SessionSummary, StarpathAnalytics, StarpathDropoff, StarpathProgressPoint,
+        StarpathProgressSnapshot,
+    },
     models::starpath_chapter::{StarpathChapter, StarpathChapterRow},
     models::starpath_input::{
         AddStarpathLabInput, CreateStarpathChapterInput, UpdateStarpathChapterInput,
@@ -45,16 +51,19 @@ pub struct StarpathsService {
     db: PgPool,
     http: Client,
     groups_ms_base: Url,
+    sessions_ms_base: Url,
 }
 
 impl StarpathsService {
     pub fn new(db: PgPool) -> Self {
         let groups_ms_base = Self::load_groups_ms_base_url();
+        let sessions_ms_base = Self::load_sessions_ms_base_url();
 
         Self {
             db,
             http: Client::new(),
             groups_ms_base,
+            sessions_ms_base,
         }
     }
 
@@ -78,6 +87,31 @@ impl StarpathsService {
 
         if url.query().is_some() || url.fragment().is_some() {
             panic!("GROUPS_MS_URL must not contain query parameters or fragments");
+        }
+
+        url
+    }
+
+    fn load_sessions_ms_base_url() -> Url {
+        let raw =
+            std::env::var("SESSIONS_MS_URL").unwrap_or_else(|_| "http://localhost:3003".to_string());
+
+        let url = Url::parse(&raw).expect("SESSIONS_MS_URL must be a valid absolute URL");
+
+        if !matches!(url.scheme(), "http" | "https") {
+            panic!("SESSIONS_MS_URL must use http or https");
+        }
+
+        if url.host_str().is_none() {
+            panic!("SESSIONS_MS_URL must contain a host");
+        }
+
+        if !url.username().is_empty() || url.password().is_some() {
+            panic!("SESSIONS_MS_URL must not contain credentials");
+        }
+
+        if url.query().is_some() || url.fragment().is_some() {
+            panic!("SESSIONS_MS_URL must not contain query parameters or fragments");
         }
 
         url
@@ -761,6 +795,8 @@ impl StarpathsService {
         user_id: Uuid,
         starpath_id: Uuid,
     ) -> Result<Option<StarpathProgress>, AppError> {
+        self.sync_starpath_progress(user_id, starpath_id).await?;
+
         let row = sqlx::query_as::<_, StarpathProgressRow>(
             r#"
             SELECT
@@ -782,6 +818,62 @@ impl StarpathsService {
         .map_err(|e| AppError::Internal(e.to_string()))?;
 
         Ok(row.map(StarpathProgress::from))
+    }
+
+    pub async fn get_starpath_analytics(
+        &self,
+        caller_user_id: Uuid,
+        is_admin: bool,
+        starpath_id: Uuid,
+        window: &str,
+    ) -> Result<StarpathAnalytics, AppError> {
+        let starpath = self
+            .get_starpath(starpath_id)
+            .await?
+            .ok_or_else(|| AppError::NotFound("Starpath not found".into()))?;
+
+        if !is_admin && starpath.creator_id != caller_user_id {
+            return Err(AppError::Forbidden(
+                "You are not allowed to inspect this starpath analytics".into(),
+            ));
+        }
+
+        self.sync_all_starpath_progress(starpath_id).await?;
+
+        let linked_labs = self.get_starpath_labs(starpath_id).await?;
+        let progress_rows = self.list_starpath_progress_snapshots(starpath_id).await?;
+        let (window_start, window_name) = normalize_window(window);
+
+        let learners_started = progress_rows
+            .iter()
+            .filter(|row| row.started_at >= window_start)
+            .count() as i64;
+        let learners_completed = progress_rows
+            .iter()
+            .filter(|row| row.completed_at.is_some_and(|completed_at| completed_at >= window_start))
+            .count() as i64;
+
+        let completion_rate = if learners_started <= 0 {
+            0.0
+        } else {
+            (learners_completed as f64 / learners_started as f64) * 100.0
+        };
+
+        let linked_labs_count = linked_labs.len() as i32;
+        let progress_distribution = build_progress_distribution(&progress_rows, linked_labs_count);
+        let strongest_dropoff = detect_strongest_dropoff(&progress_distribution);
+
+        Ok(StarpathAnalytics {
+            window: window_name,
+            starpath_id,
+            linked_labs_count,
+            learners_started,
+            learners_completed,
+            completion_rate,
+            progress_distribution,
+            strongest_dropoff,
+            generated_at: Utc::now().to_rfc3339(),
+        })
     }
 
     pub async fn ensure_starpath_access(
@@ -902,4 +994,268 @@ impl StarpathsService {
 
         Ok(rows.into_iter().map(StarpathProgress::from).collect())
     }
+
+    async fn sync_all_starpath_progress(&self, starpath_id: Uuid) -> Result<(), AppError> {
+        let user_ids = sqlx::query_scalar::<_, Uuid>(
+            r#"
+            SELECT user_id
+            FROM user_starpath_progress
+            WHERE starpath_id = $1
+            "#,
+        )
+        .bind(starpath_id)
+        .fetch_all(&self.db)
+        .await
+        .map_err(|e| AppError::Internal(e.to_string()))?;
+
+        for user_id in user_ids {
+            self.sync_starpath_progress(user_id, starpath_id).await?;
+        }
+
+        Ok(())
+    }
+
+    async fn sync_starpath_progress(&self, user_id: Uuid, starpath_id: Uuid) -> Result<(), AppError> {
+        let linked_labs = self.get_starpath_labs(starpath_id).await?;
+        if linked_labs.is_empty() {
+            return Ok(());
+        }
+
+        let existing_progress = sqlx::query_as::<_, StarpathProgressRow>(
+            r#"
+            SELECT
+                user_id,
+                starpath_id,
+                current_position,
+                status,
+                started_at,
+                completed_at
+            FROM user_starpath_progress
+            WHERE user_id = $1
+              AND starpath_id = $2
+            "#,
+        )
+        .bind(user_id)
+        .bind(starpath_id)
+        .fetch_optional(&self.db)
+        .await
+        .map_err(|e| AppError::Internal(e.to_string()))?;
+
+        let completed_sessions = self.fetch_completed_lab_sessions_for_user(user_id).await?;
+        let completed_lab_times = completed_sessions
+            .into_iter()
+            .filter(|session| session.status.eq_ignore_ascii_case("completed"))
+            .filter_map(|session| session.completed_at.map(|completed_at| (session.lab_id, completed_at)))
+            .collect::<std::collections::HashMap<_, _>>();
+
+        if existing_progress.is_none() && completed_lab_times.is_empty() {
+            return Ok(());
+        }
+
+        let next_position = compute_next_position(&linked_labs, &completed_lab_times);
+        let linked_labs_count = linked_labs.len() as i32;
+        let is_completed = linked_labs_count > 0 && next_position >= linked_labs_count;
+
+        let started_at = existing_progress
+            .as_ref()
+            .map(|row| row.started_at)
+            .unwrap_or_else(|| {
+                completed_lab_times
+                    .values()
+                    .min()
+                    .copied()
+                    .unwrap_or_else(|| Utc::now().naive_utc())
+            });
+
+        let completed_at = if is_completed {
+            linked_labs
+                .iter()
+                .filter_map(|lab| completed_lab_times.get(&lab.lab_id).copied())
+                .max()
+        } else {
+            None
+        };
+
+        let status = if is_completed { "completed" } else { "in_progress" };
+
+        sqlx::query(
+            r#"
+            INSERT INTO user_starpath_progress (
+                user_id,
+                starpath_id,
+                current_position,
+                status,
+                started_at,
+                completed_at
+            )
+            VALUES ($1, $2, $3, $4, $5, $6)
+            ON CONFLICT (user_id, starpath_id)
+            DO UPDATE SET
+                current_position = EXCLUDED.current_position,
+                status = EXCLUDED.status,
+                started_at = user_starpath_progress.started_at,
+                completed_at = EXCLUDED.completed_at
+            "#,
+        )
+        .bind(user_id)
+        .bind(starpath_id)
+        .bind(next_position)
+        .bind(status)
+        .bind(started_at)
+        .bind(completed_at)
+        .execute(&self.db)
+        .await
+        .map_err(|e| AppError::Internal(e.to_string()))?;
+
+        Ok(())
+    }
+
+    async fn fetch_completed_lab_sessions_for_user(
+        &self,
+        user_id: Uuid,
+    ) -> Result<Vec<SessionSummary>, AppError> {
+        #[derive(Debug, Deserialize)]
+        struct SessionApiResponse {
+            data: Vec<SessionSummary>,
+        }
+
+        let endpoint = self
+            .sessions_ms_base
+            .join(&format!("/sessions/user/{user_id}"))
+            .map_err(|_| AppError::Internal("Invalid Sessions MS endpoint".into()))?;
+
+        let response = self
+            .http
+            .get(endpoint)
+            .header("x-altair-user-id", user_id.to_string())
+            .header("x-altair-roles", "learner")
+            .send()
+            .await
+            .map_err(|_| AppError::Internal("Sessions MS unreachable".into()))?;
+
+        if !response.status().is_success() {
+            return Err(AppError::Internal(format!(
+                "Sessions MS returned {} while syncing starpath progress",
+                response.status()
+            )));
+        }
+
+        let body = response
+            .json::<SessionApiResponse>()
+            .await
+            .map_err(|_| AppError::Internal("Invalid Sessions MS response".into()))?;
+
+        Ok(body.data)
+    }
+
+    async fn list_starpath_progress_snapshots(
+        &self,
+        starpath_id: Uuid,
+    ) -> Result<Vec<StarpathProgressSnapshot>, AppError> {
+        let rows = sqlx::query_as::<_, StarpathProgressRow>(
+            r#"
+            SELECT
+                user_id,
+                starpath_id,
+                current_position,
+                status,
+                started_at,
+                completed_at
+            FROM user_starpath_progress
+            WHERE starpath_id = $1
+            "#,
+        )
+        .bind(starpath_id)
+        .fetch_all(&self.db)
+        .await
+        .map_err(|e| AppError::Internal(e.to_string()))?;
+
+        Ok(rows
+            .into_iter()
+            .map(|row| StarpathProgressSnapshot {
+                current_position: row.current_position,
+                started_at: row.started_at,
+                completed_at: row.completed_at,
+            })
+            .collect())
+    }
+}
+
+fn compute_next_position(
+    linked_labs: &[StarpathLab],
+    completed_lab_times: &std::collections::HashMap<Uuid, NaiveDateTime>,
+) -> i32 {
+    let mut ordered = linked_labs.to_vec();
+    ordered.sort_by_key(|lab| lab.position);
+
+    let mut next_position = 0;
+    for lab in ordered {
+        if completed_lab_times.contains_key(&lab.lab_id) {
+            next_position += 1;
+        } else {
+            break;
+        }
+    }
+
+    next_position
+}
+
+fn normalize_window(window: &str) -> (NaiveDateTime, String) {
+    match window {
+        "30d" => ((Utc::now() - Duration::days(30)).naive_utc(), "30d".into()),
+        _ => ((Utc::now() - Duration::days(7)).naive_utc(), "7d".into()),
+    }
+}
+
+fn build_progress_distribution(
+    rows: &[StarpathProgressSnapshot],
+    linked_labs_count: i32,
+) -> Vec<StarpathProgressPoint> {
+    (0..=linked_labs_count)
+        .map(|position| StarpathProgressPoint {
+            position,
+            reached_count: rows
+                .iter()
+                .filter(|row| row.current_position >= position)
+                .count() as i64,
+        })
+        .collect()
+}
+
+fn detect_strongest_dropoff(
+    points: &[StarpathProgressPoint],
+) -> Option<StarpathDropoff> {
+    let mut best: Option<StarpathDropoff> = None;
+
+    for window in points.windows(2) {
+        let previous = &window[0];
+        let next = &window[1];
+
+        if previous.reached_count < 10 || previous.reached_count <= 0 {
+            continue;
+        }
+
+        let drop_percent =
+            ((previous.reached_count - next.reached_count) as f64 / previous.reached_count as f64)
+                * 100.0;
+
+        if drop_percent < 40.0 {
+            continue;
+        }
+
+        let candidate = StarpathDropoff {
+            from_position: previous.position,
+            to_position: next.position,
+            previous_count: previous.reached_count,
+            next_count: next.reached_count,
+            drop_percent,
+        };
+
+        match &best {
+            Some(current) if current.drop_percent >= candidate.drop_percent => {}
+            _ => best = Some(candidate),
+        }
+    }
+
+    best
 }

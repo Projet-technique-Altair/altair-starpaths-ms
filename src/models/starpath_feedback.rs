@@ -198,3 +198,18 @@ pub struct StarpathFeedbackSummary {
     pub rating_count: i64,
     pub current_user_rating: Option<i32>,
 }
+
+#[derive(Debug, Deserialize)]
+pub struct EngagementWindowQuery {
+    pub window: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct StarpathEngagementSummary {
+    pub window: String,
+    pub comments_count: i64,
+    pub negative_ratings_count: i64,
+    pub likes_count: i64,
+    pub dislikes_count: i64,
+    pub latest_vote_at: Option<DateTime<Utc>>,
+}

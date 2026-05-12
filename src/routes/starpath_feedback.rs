@@ -1,5 +1,5 @@
 use axum::{
-    extract::{Path, State},
+    extract::{Path, Query, State},
     http::HeaderMap,
     Json,
 };
@@ -11,9 +11,9 @@ use crate::{
         api::ApiResponse,
         starpath::StarpathVisibility,
         starpath_feedback::{
-            CreateStarpathFeedbackRequest, StarpathFeedback, StarpathFeedbackSummary,
-            UpdateStarpathFeedbackReplyRequest, UpdateStarpathFeedbackRequest,
-            UpdateStarpathFeedbackVoteRequest,
+            CreateStarpathFeedbackRequest, EngagementWindowQuery, StarpathEngagementSummary,
+            StarpathFeedback, StarpathFeedbackSummary, UpdateStarpathFeedbackReplyRequest,
+            UpdateStarpathFeedbackRequest, UpdateStarpathFeedbackVoteRequest,
         },
     },
     services::extractor::{extract_caller, Caller},
@@ -85,6 +85,23 @@ pub async fn get_starpath_feedbacks(
         .await?;
 
     Ok(Json(ApiResponse::success(feedbacks)))
+}
+
+pub async fn get_starpath_engagement_summary(
+    State(state): State<AppState>,
+    Path(starpath_id): Path<Uuid>,
+    headers: HeaderMap,
+    Query(query): Query<EngagementWindowQuery>,
+) -> Result<Json<ApiResponse<StarpathEngagementSummary>>, AppError> {
+    let caller = extract_caller(&headers)?;
+    ensure_starpath_feedback_access(&state, &caller, starpath_id).await?;
+
+    let summary = state
+        .starpath_feedback_service
+        .get_engagement_summary(starpath_id, query.window.as_deref().unwrap_or("7d"))
+        .await?;
+
+    Ok(Json(ApiResponse::success(summary)))
 }
 
 pub async fn create_starpath_feedback(

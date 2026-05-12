@@ -1,10 +1,11 @@
+use chrono::{Duration, Utc};
 use sqlx::PgPool;
 use uuid::Uuid;
 
 use crate::{
     error::AppError,
     models::starpath_feedback::{
-        StarpathFeedback, StarpathFeedbackRow, StarpathFeedbackSummary,
+        StarpathEngagementSummary, StarpathFeedback, StarpathFeedbackRow, StarpathFeedbackSummary,
         StarpathFeedbackVoteValue,
     },
 };
@@ -582,5 +583,79 @@ impl StarpathFeedbackService {
         }
 
         self.get_feedback_by_id(feedback_id, caller_id).await
+    }
+
+    pub async fn get_engagement_summary(
+        &self,
+        starpath_id: Uuid,
+        window: &str,
+    ) -> Result<StarpathEngagementSummary, AppError> {
+        let cutoff = match window {
+            "30d" => Utc::now() - Duration::days(30),
+            _ => Utc::now() - Duration::days(7),
+        };
+
+        let comments_count = sqlx::query_scalar::<_, i64>(
+            r#"
+            SELECT COUNT(*)::BIGINT
+            FROM starpath_feedbacks
+            WHERE starpath_id = $1
+              AND deleted_at IS NULL
+              AND created_at >= $2
+            "#,
+        )
+        .bind(starpath_id)
+        .bind(cutoff)
+        .fetch_one(&self.db)
+        .await
+        .map_err(|e| AppError::Internal(e.to_string()))?;
+
+        let negative_ratings_count = sqlx::query_scalar::<_, i64>(
+            r#"
+            SELECT COUNT(*)::BIGINT
+            FROM starpath_feedbacks
+            WHERE starpath_id = $1
+              AND deleted_at IS NULL
+              AND created_at >= $2
+              AND rating <= 2
+            "#,
+        )
+        .bind(starpath_id)
+        .bind(cutoff)
+        .fetch_one(&self.db)
+        .await
+        .map_err(|e| AppError::Internal(e.to_string()))?;
+
+        let (likes_count, dislikes_count, latest_vote_at) =
+            sqlx::query_as::<_, (i64, i64, Option<chrono::DateTime<Utc>>)>(
+                r#"
+                SELECT
+                    COALESCE(COUNT(*) FILTER (WHERE v.vote = 'like'), 0)::BIGINT AS likes_count,
+                    COALESCE(COUNT(*) FILTER (WHERE v.vote = 'dislike'), 0)::BIGINT AS dislikes_count,
+                    MAX(v.updated_at) AS latest_vote_at
+                FROM starpath_feedback_votes v
+                INNER JOIN starpath_feedbacks f ON f.feedback_id = v.feedback_id
+                WHERE f.starpath_id = $1
+                  AND f.deleted_at IS NULL
+                  AND v.updated_at >= $2
+                "#,
+            )
+            .bind(starpath_id)
+            .bind(cutoff)
+            .fetch_one(&self.db)
+            .await
+            .map_err(|e| AppError::Internal(e.to_string()))?;
+
+        Ok(StarpathEngagementSummary {
+            window: match window {
+                "30d" => "30d".into(),
+                _ => "7d".into(),
+            },
+            comments_count,
+            negative_ratings_count,
+            likes_count,
+            dislikes_count,
+            latest_vote_at,
+        })
     }
 }
