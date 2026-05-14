@@ -41,6 +41,8 @@ pub struct StarpathRow {
     pub difficulty: Option<String>,
     pub visibility: String,
     pub content_status: String,
+    pub rating_average: Option<f64>,
+    pub rating_count: i64,
     pub created_at: chrono::NaiveDateTime,
 }
 
@@ -53,6 +55,8 @@ pub struct Starpath {
     pub difficulty: Option<String>,
     pub visibility: StarpathVisibility,
     pub content_status: String,
+    pub rating_average: f64,
+    pub rating_count: i64,
     pub created_at: chrono::NaiveDateTime,
 }
 
@@ -77,6 +81,8 @@ impl TryFrom<StarpathRow> for Starpath {
             difficulty: row.difficulty,
             visibility,
             content_status: row.content_status,
+            rating_average: row.rating_average.unwrap_or(0.0),
+            rating_count: row.rating_count,
             created_at: row.created_at,
         })
     }

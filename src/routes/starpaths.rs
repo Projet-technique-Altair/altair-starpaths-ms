@@ -3,6 +3,7 @@ use crate::{
     models::{
         api::{ApiResponse, SearchStarpathsQuery},
         starpath::Starpath,
+        starpath_analytics::{StarpathAnalytics, StarpathAnalyticsQuery},
         starpath_input::{
             CreateStarpathChapterInput, CreateStarpathInput, UpdateStarpathChapterInput,
             UpdateStarpathInput,
@@ -516,6 +517,24 @@ pub async fn get_starpath_progress(
         .ok_or_else(|| AppError::NotFound("Progress not found".into()))?;
 
     Ok(Json(ApiResponse::success(progress)))
+}
+
+pub async fn get_starpath_analytics(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path(starpath_id): Path<Uuid>,
+    Query(query): Query<StarpathAnalyticsQuery>,
+) -> Result<Json<ApiResponse<StarpathAnalytics>>, AppError> {
+    let caller = extract_caller(&headers)?;
+    let is_admin = caller.roles.iter().any(|r| r == "admin");
+    let window = query.window.as_deref().unwrap_or("7d");
+
+    let analytics = state
+        .starpaths_service
+        .get_starpath_analytics(caller.user_id, is_admin, starpath_id, window)
+        .await?;
+
+    Ok(Json(ApiResponse::success(analytics)))
 }
 
 pub async fn list_admin_user_starpath_progress(

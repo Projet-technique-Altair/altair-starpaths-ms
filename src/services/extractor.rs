@@ -24,6 +24,7 @@ use uuid::Uuid;
 #[derive(Debug)]
 pub struct Caller {
     pub user_id: Uuid,
+    pub pseudo: String,
     pub roles: Vec<String>,
 }
 
@@ -40,5 +41,16 @@ pub fn extract_caller(headers: &HeaderMap) -> Result<Caller, AppError> {
         .map(|s| s.split(',').map(|r| r.to_string()).collect())
         .unwrap_or_default();
 
-    Ok(Caller { user_id, roles })
+    let pseudo = headers
+        .get("x-altair-pseudo")
+        .and_then(|h| h.to_str().ok())
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty())
+        .unwrap_or_else(|| "unknown".to_string());
+
+    Ok(Caller {
+        user_id,
+        pseudo,
+        roles,
+    })
 }
