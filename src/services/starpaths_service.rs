@@ -956,6 +956,11 @@ impl StarpathsService {
                 ("user_id", user_id.to_string()),
                 ("starpath_id", starpath_id.to_string()),
             ])
+            .header(
+                "x-altair-internal-token",
+                std::env::var("INTERNAL_SERVICE_TOKEN")
+                    .unwrap_or_else(|_| "local-dev-token".to_string()),
+            )
             .send()
             .await
             .map_err(|_| AppError::Internal("Groups MS unreachable".into()))?
@@ -1129,6 +1134,10 @@ impl StarpathsService {
             .get(endpoint)
             .header("x-altair-user-id", user_id.to_string())
             .header("x-altair-roles", "learner")
+            .header(
+                "x-altair-gateway-token",
+                std::env::var("GATEWAY_SHARED_TOKEN").unwrap_or_default(),
+            )
             .send()
             .await
             .map_err(|_| AppError::Internal("Sessions MS unreachable".into()))?;

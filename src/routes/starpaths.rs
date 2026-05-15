@@ -109,12 +109,32 @@ pub async fn list_starpaths_admin(
 pub async fn get_starpath(
     State(state): State<AppState>,
     Path(starpath_id): Path<Uuid>,
+    headers: HeaderMap,
 ) -> Result<Json<ApiResponse<Starpath>>, AppError> {
-    let starpath = state
-        .starpaths_service
-        .get_starpath(starpath_id)
-        .await?
-        .ok_or_else(|| AppError::NotFound("Starpath not found".into()))?;
+    let starpath = match extract_caller(&headers) {
+        Ok(caller) => {
+            let is_admin = caller.roles.iter().any(|role| role == "admin");
+            state
+                .starpaths_service
+                .ensure_starpath_access(caller.user_id, starpath_id, is_admin)
+                .await?
+        }
+        Err(_) => {
+            let starpath = state
+                .starpaths_service
+                .get_starpath(starpath_id)
+                .await?
+                .ok_or_else(|| AppError::NotFound("Starpath not found".into()))?;
+
+            if starpath.visibility != crate::models::starpath::StarpathVisibility::Public
+                || !starpath.content_status.eq_ignore_ascii_case("active")
+            {
+                return Err(AppError::NotFound("Starpath not found".into()));
+            }
+
+            starpath
+        }
+    };
 
     Ok(Json(ApiResponse::success(starpath)))
 }
