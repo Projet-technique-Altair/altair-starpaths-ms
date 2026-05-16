@@ -1,3 +1,4 @@
+use chrono::{Duration, NaiveDateTime, Utc};
 /**
  * @file starpaths_service — business logic for starpath management.
  *
@@ -25,10 +26,9 @@
  * @packageDocumentation
  */
 use reqwest::{Client, Url};
+use serde::Deserialize;
 use sqlx::PgPool;
 use uuid::Uuid;
-use chrono::{Duration, NaiveDateTime, Utc};
-use serde::Deserialize;
 
 use crate::{
     error::AppError,
@@ -93,8 +93,8 @@ impl StarpathsService {
     }
 
     fn load_sessions_ms_base_url() -> Url {
-        let raw =
-            std::env::var("SESSIONS_MS_URL").unwrap_or_else(|_| "http://localhost:3003".to_string());
+        let raw = std::env::var("SESSIONS_MS_URL")
+            .unwrap_or_else(|_| "http://localhost:3003".to_string());
 
         let url = Url::parse(&raw).expect("SESSIONS_MS_URL must be a valid absolute URL");
 
@@ -850,7 +850,10 @@ impl StarpathsService {
             .count() as i64;
         let learners_completed = progress_rows
             .iter()
-            .filter(|row| row.completed_at.is_some_and(|completed_at| completed_at >= window_start))
+            .filter(|row| {
+                row.completed_at
+                    .is_some_and(|completed_at| completed_at >= window_start)
+            })
             .count() as i64;
 
         let completion_rate = if learners_started <= 0 {
@@ -894,7 +897,11 @@ impl StarpathsService {
         let public_active = starpath.visibility == StarpathVisibility::Public
             && starpath.content_status.eq_ignore_ascii_case("active");
 
-        if public_active || self.user_has_group_access_to_starpath(user_id, starpath_id).await? {
+        if public_active
+            || self
+                .user_has_group_access_to_starpath(user_id, starpath_id)
+                .await?
+        {
             return Ok(starpath);
         }
 
@@ -956,6 +963,11 @@ impl StarpathsService {
                 ("user_id", user_id.to_string()),
                 ("starpath_id", starpath_id.to_string()),
             ])
+            .header(
+                "x-altair-internal-token",
+                std::env::var("INTERNAL_SERVICE_TOKEN")
+                    .unwrap_or_else(|_| "local-dev-token".to_string()),
+            )
             .send()
             .await
             .map_err(|_| AppError::Internal("Groups MS unreachable".into()))?
@@ -1015,7 +1027,11 @@ impl StarpathsService {
         Ok(())
     }
 
-    async fn sync_starpath_progress(&self, user_id: Uuid, starpath_id: Uuid) -> Result<(), AppError> {
+    async fn sync_starpath_progress(
+        &self,
+        user_id: Uuid,
+        starpath_id: Uuid,
+    ) -> Result<(), AppError> {
         let linked_labs = self.get_starpath_labs(starpath_id).await?;
         if linked_labs.is_empty() {
             return Ok(());
@@ -1045,7 +1061,11 @@ impl StarpathsService {
         let completed_lab_times = completed_sessions
             .into_iter()
             .filter(|session| session.status.eq_ignore_ascii_case("completed"))
-            .filter_map(|session| session.completed_at.map(|completed_at| (session.lab_id, completed_at)))
+            .filter_map(|session| {
+                session
+                    .completed_at
+                    .map(|completed_at| (session.lab_id, completed_at))
+            })
             .collect::<std::collections::HashMap<_, _>>();
 
         if existing_progress.is_none() && completed_lab_times.is_empty() {
@@ -1076,7 +1096,11 @@ impl StarpathsService {
             None
         };
 
-        let status = if is_completed { "completed" } else { "in_progress" };
+        let status = if is_completed {
+            "completed"
+        } else {
+            "in_progress"
+        };
 
         sqlx::query(
             r#"
@@ -1129,6 +1153,10 @@ impl StarpathsService {
             .get(endpoint)
             .header("x-altair-user-id", user_id.to_string())
             .header("x-altair-roles", "learner")
+            .header(
+                "x-altair-gateway-token",
+                std::env::var("GATEWAY_SHARED_TOKEN").unwrap_or_default(),
+            )
             .send()
             .await
             .map_err(|_| AppError::Internal("Sessions MS unreachable".into()))?;
@@ -1222,9 +1250,7 @@ fn build_progress_distribution(
         .collect()
 }
 
-fn detect_strongest_dropoff(
-    points: &[StarpathProgressPoint],
-) -> Option<StarpathDropoff> {
+fn detect_strongest_dropoff(points: &[StarpathProgressPoint]) -> Option<StarpathDropoff> {
     let mut best: Option<StarpathDropoff> = None;
 
     for window in points.windows(2) {
@@ -1235,9 +1261,9 @@ fn detect_strongest_dropoff(
             continue;
         }
 
-        let drop_percent =
-            ((previous.reached_count - next.reached_count) as f64 / previous.reached_count as f64)
-                * 100.0;
+        let drop_percent = ((previous.reached_count - next.reached_count) as f64
+            / previous.reached_count as f64)
+            * 100.0;
 
         if drop_percent < 40.0 {
             continue;

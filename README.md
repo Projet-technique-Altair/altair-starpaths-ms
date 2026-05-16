@@ -29,18 +29,14 @@ This service provides CRUD operations for Starpaths, manages the ordered list of
 
 ## ⚠️ Security Notice
 
-**This service started as MVP with no authentication, and is being integrated behind the API Gateway.**
+**This service trusts identity headers injected by the API Gateway.**
 
-- Gateway now proxies `/starpaths/*` routes with JWT authentication.
-- Remaining work: enforce who can call write endpoints, remove spoofable IDs from request bodies, and add ownership checks.
+- Creator identity is derived from `x-altair-user-id` on create operations.
+- Update/delete operations enforce owner-or-admin checks.
+- Private access checks are delegated to groups membership logic where needed.
+- Progress endpoints are authenticated through gateway-injected identity headers.
 
-**Current risks (until fully enforced):**
-
-- ❌ Spoofable IDs if taken from request body (creator_id, user_id)
-- ❌ No ownership checks (anyone can modify any starpath)
-- ⚠️ Progress endpoint uses JSON body on GET (non-standard)
-
-**Deployment requirement:** Keep internal-only behind the authenticated Gateway until these are fixed.
+**Deployment requirement:** keep the service internal-only behind the authenticated Gateway because it does not validate JWTs itself.
 
 ---
 
@@ -641,14 +637,11 @@ The Cloud Run service account requires:
 
 ### 🔴 Critical Issues
 
-- **No authentication** – All endpoints publicly accessible
-- **Spoofable IDs** – `creator_id` and `user_id` accepted from request body
-- **GET with body** – Progress endpoint violates HTTP standards
+- **Gateway trust dependency** – Downstream identity headers must only arrive from the Gateway
 - **README/API contract drift** – Plusieurs exemples de réponses JSON du README ne matchent plus le code (ex: `/health`, `DELETE /starpaths/:id`, routes labs qui renvoient `ApiResponse::success(())` donc `data: null`).
 
 ### 🟡 Operational Gaps
 
-- **No ownership validation** – Anyone can modify any Starpath
 - **No progression logic** – No integration with Sessions MS to advance position
 - **No completion logic** – Status never changes from `in_progress` to `completed`
 - **Error handling too broad** – All SQL errors converted to 409 Conflict
@@ -666,10 +659,7 @@ The Cloud Run service account requires:
 
 ### High Priority (MVP → Production)
 
-- [ ]  **Add Gateway authentication** (extract `user_id`, `creator_id` from headers)
-- [ ]  **Fix progress endpoint** (remove body from GET, use headers or query params)
-- [ ]  **Add ownership checks** (only creator can modify Starpath)
-- [ ]  **Add admin role checks** (admins can modify any Starpath)
+- [ ]  **Keep Gateway-only exposure enforced** at the platform layer
 
 ### Medium Priority (Production Hardening)
 
@@ -689,18 +679,16 @@ The Cloud Run service account requires:
 
 ## Project Status
 
-**⚠️ Current Status: MVP (No Authentication)**
+**Current Status: gateway-trusted service with ownership checks**
 
-This microservice is **functional for MVP deployment** with core Starpath management operational. Critical authentication gaps must be addressed before production.
+This microservice is functional with authenticated creator flows and owner/admin checks on write operations. It still depends on the Gateway trust boundary and private deployment.
 
 **Known limitations to address for production:**
 
-1. Add Gateway-based authentication
-2. Fix GET endpoint with body issue
-3. Add ownership and role-based access control
-4. Integrate progression with Sessions MS
-5. Add completion logic
-6. Improve error handling specificity
+1. Keep gateway-only exposure enforced at the platform layer
+2. Integrate progression with Sessions MS
+3. Add completion logic
+4. Improve error handling specificity
 
 **Maintainers:** Altaïr Platform Team
 

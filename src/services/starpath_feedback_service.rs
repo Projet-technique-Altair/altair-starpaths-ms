@@ -435,7 +435,9 @@ impl StarpathFeedbackService {
         }
 
         if pseudo.is_empty() {
-            return Err(AppError::BadRequest("Creator pseudo cannot be empty".into()));
+            return Err(AppError::BadRequest(
+                "Creator pseudo cannot be empty".into(),
+            ));
         }
 
         sqlx::query(

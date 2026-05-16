@@ -150,7 +150,12 @@ pub async fn update_starpath_feedback(
 
     let updated = state
         .starpath_feedback_service
-        .update_feedback(feedback_id, caller.user_id, &payload.content, payload.rating)
+        .update_feedback(
+            feedback_id,
+            caller.user_id,
+            &payload.content,
+            payload.rating,
+        )
         .await?;
 
     Ok(Json(ApiResponse::success(updated)))
