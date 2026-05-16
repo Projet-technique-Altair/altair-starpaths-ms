@@ -29,8 +29,6 @@ use reqwest::{Client, Url};
 use serde::Deserialize;
 use sqlx::PgPool;
 use uuid::Uuid;
-use chrono::{Duration, NaiveDateTime, Utc};
-use serde::Deserialize;
 
 use crate::{
     error::AppError,
