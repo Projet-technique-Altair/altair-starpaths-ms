@@ -57,9 +57,8 @@ pub fn extract_caller(headers: &HeaderMap) -> Result<Caller, AppError> {
 }
 
 fn ensure_gateway_origin(headers: &HeaderMap) -> Result<(), AppError> {
-    let Ok(expected) = std::env::var("GATEWAY_SHARED_TOKEN") else {
-        return Ok(());
-    };
+    let expected = std::env::var("GATEWAY_SHARED_TOKEN")
+        .map_err(|_| AppError::Unauthorized("Gateway shared token is not configured".into()))?;
     let provided = headers
         .get("x-altair-gateway-token")
         .and_then(|value| value.to_str().ok());
