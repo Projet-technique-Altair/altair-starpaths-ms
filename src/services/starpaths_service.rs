@@ -44,6 +44,7 @@ use crate::{
     },
     models::starpath_lab::{StarpathLab, StarpathLabRow},
     models::starpath_progress::{StarpathProgress, StarpathProgressRow},
+    services::cloud_run_auth,
 };
 
 #[derive(Clone)]
@@ -956,24 +957,26 @@ impl StarpathsService {
             .join("/internal/access/starpath")
             .map_err(|_| AppError::Internal("Invalid Groups MS endpoint".into()))?;
 
-        let body = self
-            .http
-            .get(endpoint)
-            .query(&[
-                ("user_id", user_id.to_string()),
-                ("starpath_id", starpath_id.to_string()),
-            ])
-            .header(
-                "x-altair-internal-token",
-                std::env::var("INTERNAL_SERVICE_TOKEN")
-                    .unwrap_or_else(|_| "local-dev-token".to_string()),
-            )
-            .send()
-            .await
-            .map_err(|_| AppError::Internal("Groups MS unreachable".into()))?
-            .json::<serde_json::Value>()
-            .await
-            .map_err(|_| AppError::Internal("Invalid Groups response".into()))?;
+        let body = cloud_run_auth::with_cloud_run_auth(
+            self.http.get(endpoint.as_str()),
+            endpoint.as_str(),
+        )
+        .await
+        .query(&[
+            ("user_id", user_id.to_string()),
+            ("starpath_id", starpath_id.to_string()),
+        ])
+        .header(
+            "x-altair-internal-token",
+            std::env::var("INTERNAL_SERVICE_TOKEN")
+                .unwrap_or_else(|_| "local-dev-token".to_string()),
+        )
+        .send()
+        .await
+        .map_err(|_| AppError::Internal("Groups MS unreachable".into()))?
+        .json::<serde_json::Value>()
+        .await
+        .map_err(|_| AppError::Internal("Invalid Groups response".into()))?;
 
         Ok(body
             .get("data")
@@ -1148,18 +1151,20 @@ impl StarpathsService {
             .join(&format!("/sessions/user/{user_id}"))
             .map_err(|_| AppError::Internal("Invalid Sessions MS endpoint".into()))?;
 
-        let response = self
-            .http
-            .get(endpoint)
-            .header("x-altair-user-id", user_id.to_string())
-            .header("x-altair-roles", "learner")
-            .header(
-                "x-altair-gateway-token",
-                std::env::var("GATEWAY_SHARED_TOKEN").unwrap_or_default(),
-            )
-            .send()
-            .await
-            .map_err(|_| AppError::Internal("Sessions MS unreachable".into()))?;
+        let response = cloud_run_auth::with_cloud_run_auth(
+            self.http.get(endpoint.as_str()),
+            endpoint.as_str(),
+        )
+        .await
+        .header("x-altair-user-id", user_id.to_string())
+        .header("x-altair-roles", "learner")
+        .header(
+            "x-altair-gateway-token",
+            std::env::var("GATEWAY_SHARED_TOKEN").unwrap_or_default(),
+        )
+        .send()
+        .await
+        .map_err(|_| AppError::Internal("Sessions MS unreachable".into()))?;
 
         if !response.status().is_success() {
             return Err(AppError::Internal(format!(
