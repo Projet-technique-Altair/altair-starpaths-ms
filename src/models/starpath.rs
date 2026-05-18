@@ -44,6 +44,9 @@ pub struct StarpathRow {
     pub content_status: String,
     pub rating_average: Option<f64>,
     pub rating_count: i64,
+    pub chapters_count: i64,
+    pub labs_count: i64,
+    pub learners_started: i64,
     pub created_at: chrono::NaiveDateTime,
 }
 
@@ -59,6 +62,9 @@ pub struct Starpath {
     pub content_status: String,
     pub rating_average: f64,
     pub rating_count: i64,
+    pub chapters_count: i64,
+    pub labs_count: i64,
+    pub learners_started: i64,
     pub created_at: chrono::NaiveDateTime,
 }
 
@@ -86,6 +92,9 @@ impl TryFrom<StarpathRow> for Starpath {
             content_status: row.content_status,
             rating_average: row.rating_average.unwrap_or(0.0),
             rating_count: row.rating_count,
+            chapters_count: row.chapters_count,
+            labs_count: row.labs_count,
+            learners_started: row.learners_started,
             created_at: row.created_at,
         })
     }

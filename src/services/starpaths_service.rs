@@ -43,7 +43,7 @@ use crate::{
         UpdateStarpathInput,
     },
     models::starpath_lab::{StarpathLab, StarpathLabRow},
-    models::starpath_progress::{StarpathProgress, StarpathProgressRow},
+    models::starpath_progress::{LearnerStarpath, StarpathProgress, StarpathProgressRow},
     services::cloud_run_auth,
 };
 
@@ -150,6 +150,9 @@ impl StarpathsService {
                 s.content_status,
                 rs.rating_average,
                 COALESCE(rs.rating_count, 0)::BIGINT AS rating_count,
+                COALESCE(cc.chapters_count, 0)::BIGINT AS chapters_count,
+                COALESCE(lc.labs_count, 0)::BIGINT AS labs_count,
+                COALESCE(ps.learners_started, 0)::BIGINT AS learners_started,
                 s.created_at
             FROM starpaths s
             LEFT JOIN (
@@ -161,6 +164,21 @@ impl StarpathsService {
                 WHERE deleted_at IS NULL
                 GROUP BY starpath_id
             ) rs ON rs.starpath_id = s.starpath_id
+            LEFT JOIN (
+                SELECT starpath_id, COUNT(*)::BIGINT AS chapters_count
+                FROM starpath_chapters
+                GROUP BY starpath_id
+            ) cc ON cc.starpath_id = s.starpath_id
+            LEFT JOIN (
+                SELECT starpath_id, COUNT(*)::BIGINT AS labs_count
+                FROM starpath_labs
+                GROUP BY starpath_id
+            ) lc ON lc.starpath_id = s.starpath_id
+            LEFT JOIN (
+                SELECT starpath_id, COUNT(*)::BIGINT AS learners_started
+                FROM user_starpath_progress
+                GROUP BY starpath_id
+            ) ps ON ps.starpath_id = s.starpath_id
             WHERE s.visibility = 'public'
               AND s.content_status = 'active'
             ORDER BY s.created_at DESC
@@ -205,6 +223,9 @@ impl StarpathsService {
                 s.content_status,
                 rs.rating_average,
                 COALESCE(rs.rating_count, 0)::BIGINT AS rating_count,
+                COALESCE(cc.chapters_count, 0)::BIGINT AS chapters_count,
+                COALESCE(lc.labs_count, 0)::BIGINT AS labs_count,
+                COALESCE(ps.learners_started, 0)::BIGINT AS learners_started,
                 s.created_at
             FROM starpaths s
             LEFT JOIN (
@@ -216,6 +237,21 @@ impl StarpathsService {
                 WHERE deleted_at IS NULL
                 GROUP BY starpath_id
             ) rs ON rs.starpath_id = s.starpath_id
+            LEFT JOIN (
+                SELECT starpath_id, COUNT(*)::BIGINT AS chapters_count
+                FROM starpath_chapters
+                GROUP BY starpath_id
+            ) cc ON cc.starpath_id = s.starpath_id
+            LEFT JOIN (
+                SELECT starpath_id, COUNT(*)::BIGINT AS labs_count
+                FROM starpath_labs
+                GROUP BY starpath_id
+            ) lc ON lc.starpath_id = s.starpath_id
+            LEFT JOIN (
+                SELECT starpath_id, COUNT(*)::BIGINT AS learners_started
+                FROM user_starpath_progress
+                GROUP BY starpath_id
+            ) ps ON ps.starpath_id = s.starpath_id
             WHERE ($1::TEXT IS NULL OR s.visibility = $1)
               AND ($2::TEXT IS NULL OR s.name ILIKE $2 OR s.description ILIKE $2)
               AND ($3::TEXT IS NULL OR s.content_status = $3)
@@ -272,6 +308,9 @@ impl StarpathsService {
                 s.content_status,
                 rs.rating_average,
                 COALESCE(rs.rating_count, 0)::BIGINT AS rating_count,
+                COALESCE(cc.chapters_count, 0)::BIGINT AS chapters_count,
+                COALESCE(lc.labs_count, 0)::BIGINT AS labs_count,
+                COALESCE(ps.learners_started, 0)::BIGINT AS learners_started,
                 s.created_at
             FROM starpaths s
             LEFT JOIN (
@@ -283,6 +322,21 @@ impl StarpathsService {
                 WHERE deleted_at IS NULL
                 GROUP BY starpath_id
             ) rs ON rs.starpath_id = s.starpath_id
+            LEFT JOIN (
+                SELECT starpath_id, COUNT(*)::BIGINT AS chapters_count
+                FROM starpath_chapters
+                GROUP BY starpath_id
+            ) cc ON cc.starpath_id = s.starpath_id
+            LEFT JOIN (
+                SELECT starpath_id, COUNT(*)::BIGINT AS labs_count
+                FROM starpath_labs
+                GROUP BY starpath_id
+            ) lc ON lc.starpath_id = s.starpath_id
+            LEFT JOIN (
+                SELECT starpath_id, COUNT(*)::BIGINT AS learners_started
+                FROM user_starpath_progress
+                GROUP BY starpath_id
+            ) ps ON ps.starpath_id = s.starpath_id
             WHERE s.starpath_id = $1
             "#,
         )
@@ -311,6 +365,9 @@ impl StarpathsService {
                 s.content_status,
                 rs.rating_average,
                 COALESCE(rs.rating_count, 0)::BIGINT AS rating_count,
+                COALESCE(cc.chapters_count, 0)::BIGINT AS chapters_count,
+                COALESCE(lc.labs_count, 0)::BIGINT AS labs_count,
+                COALESCE(ps.learners_started, 0)::BIGINT AS learners_started,
                 s.created_at
             FROM starpaths s
             LEFT JOIN (
@@ -322,6 +379,21 @@ impl StarpathsService {
                 WHERE deleted_at IS NULL
                 GROUP BY starpath_id
             ) rs ON rs.starpath_id = s.starpath_id
+            LEFT JOIN (
+                SELECT starpath_id, COUNT(*)::BIGINT AS chapters_count
+                FROM starpath_chapters
+                GROUP BY starpath_id
+            ) cc ON cc.starpath_id = s.starpath_id
+            LEFT JOIN (
+                SELECT starpath_id, COUNT(*)::BIGINT AS labs_count
+                FROM starpath_labs
+                GROUP BY starpath_id
+            ) lc ON lc.starpath_id = s.starpath_id
+            LEFT JOIN (
+                SELECT starpath_id, COUNT(*)::BIGINT AS learners_started
+                FROM user_starpath_progress
+                GROUP BY starpath_id
+            ) ps ON ps.starpath_id = s.starpath_id
             WHERE s.creator_id = $1
               AND s.content_status = 'active'
             ORDER BY s.created_at DESC
@@ -333,6 +405,92 @@ impl StarpathsService {
         .map_err(|e| AppError::Internal(e.to_string()))?;
 
         rows.into_iter().map(Starpath::try_from).collect()
+    }
+
+    pub async fn learner_starpaths(
+        &self,
+        user_id: Uuid,
+    ) -> Result<Vec<LearnerStarpath>, AppError> {
+        let rows = sqlx::query_as::<_, StarpathRow>(
+            r#"
+            SELECT
+                s.starpath_id,
+                s.creator_id,
+                s.name,
+                s.description,
+                s.language,
+                s.difficulty,
+                s.visibility,
+                s.content_status,
+                rs.rating_average,
+                COALESCE(rs.rating_count, 0)::BIGINT AS rating_count,
+                COALESCE(cc.chapters_count, 0)::BIGINT AS chapters_count,
+                COALESCE(lc.labs_count, 0)::BIGINT AS labs_count,
+                COALESCE(ps.learners_started, 0)::BIGINT AS learners_started,
+                s.created_at
+            FROM user_starpath_progress usp
+            JOIN starpaths s ON s.starpath_id = usp.starpath_id
+            LEFT JOIN (
+                SELECT starpath_id, AVG(rating)::DOUBLE PRECISION AS rating_average,
+                       COUNT(feedback_id)::BIGINT AS rating_count
+                FROM starpath_feedbacks
+                WHERE deleted_at IS NULL
+                GROUP BY starpath_id
+            ) rs ON rs.starpath_id = s.starpath_id
+            LEFT JOIN (
+                SELECT starpath_id, COUNT(*)::BIGINT AS chapters_count
+                FROM starpath_chapters
+                GROUP BY starpath_id
+            ) cc ON cc.starpath_id = s.starpath_id
+            LEFT JOIN (
+                SELECT starpath_id, COUNT(*)::BIGINT AS labs_count
+                FROM starpath_labs
+                GROUP BY starpath_id
+            ) lc ON lc.starpath_id = s.starpath_id
+            LEFT JOIN (
+                SELECT starpath_id, COUNT(*)::BIGINT AS learners_started
+                FROM user_starpath_progress
+                GROUP BY starpath_id
+            ) ps ON ps.starpath_id = s.starpath_id
+            WHERE usp.user_id = $1
+            ORDER BY usp.started_at DESC
+            "#,
+        )
+        .bind(user_id)
+        .fetch_all(&self.db)
+        .await
+        .map_err(|e| AppError::Internal(e.to_string()))?;
+
+        let progress_by_starpath = sqlx::query_as::<_, StarpathProgressRow>(
+            r#"
+            SELECT user_id, starpath_id, current_position, status, started_at, completed_at
+            FROM user_starpath_progress
+            WHERE user_id = $1
+            "#,
+        )
+        .bind(user_id)
+        .fetch_all(&self.db)
+        .await
+        .map_err(|e| AppError::Internal(e.to_string()))?
+        .into_iter()
+        .map(|row| (row.starpath_id, row))
+        .collect::<std::collections::HashMap<_, _>>();
+
+        rows.into_iter()
+            .map(|row| {
+                let progress = progress_by_starpath.get(&row.starpath_id).ok_or_else(|| {
+                    AppError::Internal("Missing learner starpath progress".into())
+                })?;
+
+                Ok(LearnerStarpath {
+                    starpath: Starpath::try_from(row)?,
+                    current_position: progress.current_position,
+                    status: progress.status.clone(),
+                    started_at: progress.started_at,
+                    completed_at: progress.completed_at,
+                })
+            })
+            .collect()
     }
 
     // ==========================
@@ -358,6 +516,9 @@ impl StarpathsService {
                 s.content_status,
                 rs.rating_average,
                 COALESCE(rs.rating_count, 0)::BIGINT AS rating_count,
+                COALESCE(cc.chapters_count, 0)::BIGINT AS chapters_count,
+                COALESCE(lc.labs_count, 0)::BIGINT AS labs_count,
+                COALESCE(ps.learners_started, 0)::BIGINT AS learners_started,
                 s.created_at
             FROM starpaths s
             LEFT JOIN (
@@ -369,6 +530,21 @@ impl StarpathsService {
                 WHERE deleted_at IS NULL
                 GROUP BY starpath_id
             ) rs ON rs.starpath_id = s.starpath_id
+            LEFT JOIN (
+                SELECT starpath_id, COUNT(*)::BIGINT AS chapters_count
+                FROM starpath_chapters
+                GROUP BY starpath_id
+            ) cc ON cc.starpath_id = s.starpath_id
+            LEFT JOIN (
+                SELECT starpath_id, COUNT(*)::BIGINT AS labs_count
+                FROM starpath_labs
+                GROUP BY starpath_id
+            ) lc ON lc.starpath_id = s.starpath_id
+            LEFT JOIN (
+                SELECT starpath_id, COUNT(*)::BIGINT AS learners_started
+                FROM user_starpath_progress
+                GROUP BY starpath_id
+            ) ps ON ps.starpath_id = s.starpath_id
             WHERE 
                 s.name ILIKE $1
                 AND s.content_status = 'active'
