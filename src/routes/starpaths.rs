@@ -189,6 +189,7 @@ pub async fn create_starpath(
             input.description,
             input.difficulty,
             input.visibility,
+            input.language,
         )
         .await?;
 

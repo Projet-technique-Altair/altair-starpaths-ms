@@ -55,6 +55,21 @@ pub struct StarpathsService {
     sessions_ms_base: Url,
 }
 
+fn normalize_language(language: Option<String>) -> Result<String, AppError> {
+    let language = language
+        .map(|value| value.trim().to_ascii_lowercase())
+        .filter(|value| !value.is_empty())
+        .unwrap_or_else(|| "en".to_string());
+
+    if matches!(language.as_str(), "en" | "fr") {
+        Ok(language)
+    } else {
+        Err(AppError::BadRequest(
+            "language must be en or fr".to_string(),
+        ))
+    }
+}
+
 impl StarpathsService {
     pub fn new(db: PgPool) -> Self {
         let groups_ms_base = Self::load_groups_ms_base_url();
@@ -129,6 +144,7 @@ impl StarpathsService {
                 s.creator_id,
                 s.name,
                 s.description,
+                s.language,
                 s.difficulty,
                 s.visibility,
                 s.content_status,
@@ -183,6 +199,7 @@ impl StarpathsService {
                 s.creator_id,
                 s.name,
                 s.description,
+                s.language,
                 s.difficulty,
                 s.visibility,
                 s.content_status,
@@ -249,6 +266,7 @@ impl StarpathsService {
                 s.creator_id,
                 s.name,
                 s.description,
+                s.language,
                 s.difficulty,
                 s.visibility,
                 s.content_status,
@@ -287,6 +305,7 @@ impl StarpathsService {
                 s.creator_id,
                 s.name,
                 s.description,
+                s.language,
                 s.difficulty,
                 s.visibility,
                 s.content_status,
@@ -333,6 +352,7 @@ impl StarpathsService {
                 s.creator_id,
                 s.name,
                 s.description,
+                s.language,
                 s.difficulty,
                 s.visibility,
                 s.content_status,
@@ -379,6 +399,7 @@ impl StarpathsService {
         description: Option<String>,
         difficulty: Option<String>,
         visibility: Option<String>,
+        language: Option<String>,
     ) -> Result<Starpath, AppError> {
         let visibility = visibility
             .map(|v| {
@@ -389,6 +410,7 @@ impl StarpathsService {
             })
             .transpose()?
             .unwrap_or("private".to_string());
+        let language = normalize_language(language)?;
 
         let row = sqlx::query_scalar::<_, Uuid>(
             r#"
@@ -396,16 +418,18 @@ impl StarpathsService {
                 creator_id,
                 name,
                 description,
+                language,
                 difficulty,
                 visibility
             )
-            VALUES ($1, $2, $3, $4, $5)
+            VALUES ($1, $2, $3, $4, $5, $6)
             RETURNING starpath_id
             "#,
         )
         .bind(creator_id)
         .bind(name)
         .bind(description)
+        .bind(language)
         .bind(difficulty)
         .bind(visibility)
         .fetch_one(&self.db)
@@ -434,6 +458,7 @@ impl StarpathsService {
                 Ok(v.to_lowercase())
             })
             .transpose()?;
+        let language = input.language.map(|value| normalize_language(Some(value))).transpose()?;
 
         let row = sqlx::query_scalar::<_, Uuid>(
             r#"
@@ -441,8 +466,9 @@ impl StarpathsService {
             SET
                 name = COALESCE($2, name),
                 description = COALESCE($3, description),
-                difficulty = COALESCE($4, difficulty),
-                visibility = COALESCE($5, visibility)
+                language = COALESCE($4, language),
+                difficulty = COALESCE($5, difficulty),
+                visibility = COALESCE($6, visibility)
             WHERE starpath_id = $1
             RETURNING starpath_id
             "#,
@@ -450,6 +476,7 @@ impl StarpathsService {
         .bind(starpath_id)
         .bind(input.name)
         .bind(input.description)
+        .bind(language)
         .bind(input.difficulty)
         .bind(visibility)
         .fetch_optional(&self.db)

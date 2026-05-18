@@ -23,6 +23,7 @@ use uuid::Uuid;
 pub struct CreateStarpathInput {
     pub name: String,
     pub description: Option<String>,
+    pub language: Option<String>,
     pub difficulty: Option<String>,
     pub visibility: Option<String>,
 }
@@ -31,6 +32,7 @@ pub struct CreateStarpathInput {
 pub struct UpdateStarpathInput {
     pub name: Option<String>,
     pub description: Option<String>,
+    pub language: Option<String>,
     pub difficulty: Option<String>,
     pub visibility: Option<String>,
 }
