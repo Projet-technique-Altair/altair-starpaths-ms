@@ -407,10 +407,7 @@ impl StarpathsService {
         rows.into_iter().map(Starpath::try_from).collect()
     }
 
-    pub async fn learner_starpaths(
-        &self,
-        user_id: Uuid,
-    ) -> Result<Vec<LearnerStarpath>, AppError> {
+    pub async fn learner_starpaths(&self, user_id: Uuid) -> Result<Vec<LearnerStarpath>, AppError> {
         let rows = sqlx::query_as::<_, StarpathRow>(
             r#"
             SELECT
@@ -634,7 +631,10 @@ impl StarpathsService {
                 Ok(v.to_lowercase())
             })
             .transpose()?;
-        let language = input.language.map(|value| normalize_language(Some(value))).transpose()?;
+        let language = input
+            .language
+            .map(|value| normalize_language(Some(value)))
+            .transpose()?;
 
         let row = sqlx::query_scalar::<_, Uuid>(
             r#"
