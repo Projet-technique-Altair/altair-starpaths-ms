@@ -8,7 +8,7 @@ use crate::{
             CreateStarpathChapterInput, CreateStarpathInput, UpdateStarpathChapterInput,
             UpdateStarpathInput,
         },
-        starpath_progress::StarpathProgress,
+        starpath_progress::{LearnerStarpath, StarpathProgress},
     },
     services::extractor::extract_caller,
     state::AppState,
@@ -153,6 +153,19 @@ pub async fn my_starpaths(
     Ok(Json(ApiResponse::success(starpaths)))
 }
 
+pub async fn learner_starpaths(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+) -> Result<Json<ApiResponse<Vec<LearnerStarpath>>>, AppError> {
+    let caller = extract_caller(&headers)?;
+    let starpaths = state
+        .starpaths_service
+        .learner_starpaths(caller.user_id)
+        .await?;
+
+    Ok(Json(ApiResponse::success(starpaths)))
+}
+
 // ==========================
 // GET /starpaths/search?q=
 // ==========================
@@ -189,6 +202,7 @@ pub async fn create_starpath(
             input.description,
             input.difficulty,
             input.visibility,
+            input.language,
         )
         .await?;
 

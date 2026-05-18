@@ -42,6 +42,16 @@ pub struct StarpathProgress {
     pub completed_at: Option<chrono::NaiveDateTime>,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct LearnerStarpath {
+    #[serde(flatten)]
+    pub starpath: crate::models::starpath::Starpath,
+    pub current_position: i32,
+    pub status: String,
+    pub started_at: chrono::NaiveDateTime,
+    pub completed_at: Option<chrono::NaiveDateTime>,
+}
+
 impl From<StarpathProgressRow> for StarpathProgress {
     fn from(row: StarpathProgressRow) -> Self {
         Self {

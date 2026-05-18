@@ -41,9 +41,10 @@ use crate::routes::{
     starpaths::{
         add_starpath_lab, create_starpath, create_starpath_chapter, delete_starpath,
         delete_starpath_chapter, delete_starpath_lab, get_starpath, get_starpath_analytics,
-        get_starpath_chapters, get_starpath_labs, list_admin_user_starpath_progress,
-        list_starpaths, list_starpaths_admin, my_starpaths, search_starpaths, update_starpath,
-        update_starpath_chapter, update_starpath_content_status_admin, update_starpath_lab,
+        get_starpath_chapters, get_starpath_labs, learner_starpaths,
+        list_admin_user_starpath_progress, list_starpaths, list_starpaths_admin, my_starpaths,
+        search_starpaths, update_starpath, update_starpath_chapter,
+        update_starpath_content_status_admin, update_starpath_lab,
     },
 };
 
@@ -92,6 +93,7 @@ pub fn init_routes() -> Router<AppState> {
             put(upsert_starpath_feedback_reply).delete(delete_starpath_feedback_reply),
         )
         .route("/mystarpaths", get(my_starpaths))
+        .route("/learner/starpaths", get(learner_starpaths))
         .route("/search", get(search_starpaths))
         .route(
             "/starpaths/{id}",
