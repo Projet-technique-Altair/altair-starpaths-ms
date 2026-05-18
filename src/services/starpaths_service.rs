@@ -1078,6 +1078,9 @@ impl StarpathsService {
         let next_position = compute_next_position(&linked_labs, &completed_lab_times);
         let linked_labs_count = linked_labs.len() as i32;
         let is_completed = linked_labs_count > 0 && next_position >= linked_labs_count;
+        let was_completed = existing_progress
+            .as_ref()
+            .is_some_and(|row| row.status.eq_ignore_ascii_case("completed"));
 
         let started_at = existing_progress
             .as_ref()
@@ -1090,7 +1093,9 @@ impl StarpathsService {
                     .unwrap_or_else(|| Utc::now().naive_utc())
             });
 
-        let completed_at = if is_completed {
+        let completed_at = if was_completed {
+            existing_progress.as_ref().and_then(|row| row.completed_at)
+        } else if is_completed {
             linked_labs
                 .iter()
                 .filter_map(|lab| completed_lab_times.get(&lab.lab_id).copied())
@@ -1099,7 +1104,7 @@ impl StarpathsService {
             None
         };
 
-        let status = if is_completed {
+        let status = if was_completed || is_completed {
             "completed"
         } else {
             "in_progress"
@@ -1118,10 +1123,14 @@ impl StarpathsService {
             VALUES ($1, $2, $3, $4, $5, $6)
             ON CONFLICT (user_id, starpath_id)
             DO UPDATE SET
-                current_position = EXCLUDED.current_position,
+                current_position = CASE
+                    WHEN user_starpath_progress.status = 'completed'
+                        THEN user_starpath_progress.current_position
+                    ELSE EXCLUDED.current_position
+                END,
                 status = EXCLUDED.status,
                 started_at = user_starpath_progress.started_at,
-                completed_at = EXCLUDED.completed_at
+                completed_at = COALESCE(user_starpath_progress.completed_at, EXCLUDED.completed_at)
             "#,
         )
         .bind(user_id)
